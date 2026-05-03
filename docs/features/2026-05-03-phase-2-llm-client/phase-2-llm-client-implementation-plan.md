@@ -1165,3 +1165,84 @@ tech-design §6 R-1..6 매핑 — 각 위험을 구현 시 코드 한 줄 한 �
   ```
 - **검증**: `uv sync` 성공 (google-genai==1.74.0 설치 확인, langchain/langgraph 제거 확인). `uv run pytest -v` → 70 passed (기존 테스트 GREEN 유지).
 - **연관 항목**: CH-20260503-003 (구현계획서 — Task 1 정의)
+
+### [2026-05-03 20:05] [코드-수정] (task: Task 2 — CachePolicy frozen 모델)
+- **id**: CH-20260503-005
+- **이유**: D3 결정 (3-필드 CachePolicy frozen 모델 — enabled/ttl_seconds/force_invalidate) 의 구현. FR-5 (도메인이 캐시 동작 명시 컨트롤) / AC-5 (CachePolicy 의 enabled=False / force_invalidate=True 동작이 GeminiClient 와 정합) 충족. Task 6 의 `generate(cache_policy=None)` 시 None → CachePolicy() 디폴트 fallback 의 baseline. R-6 (frozen 모델 향후 필드 추가 호환성) 은 모든 신규 필드 default 보장 + None fallback 으로 mitigate.
+- **무엇이**: best_agent_base/llm/cache_policy.py (신규), tests/test_cache_policy.py (신규 — 6 cases)
+- **영향범위**: `best_agent_base/llm/cache_policy.py` 신규 모듈 (15 LOC) — Pydantic BaseModel + ConfigDict(frozen=True) + Field(default=3600, gt=0). public API = `CachePolicy` symbol 1개. `tests/test_cache_policy.py` 신규 (32 LOC, 6 tests). 기존 70 테스트 무영향. 후속 영향 = Task 4 의 LLMClient.generate 시그니처가 `cache_policy: CachePolicy | None = None` 으로 본 모델 import, Task 6 의 GeminiClient 가 enabled/force_invalidate 분기 + ttl_seconds 를 caches.create 에 전달.
+- **위험 카테고리**: breaking — 신규 public API (`best_agent_base.llm.cache_policy.CachePolicy`)
+- **세부 변경 (2건)**:
+  - `best_agent_base/llm/cache_policy.py` — 신규 (frozen Pydantic BaseModel: `enabled: bool = True`, `ttl_seconds: int = Field(default=3600, gt=0)`, `force_invalidate: bool = False`)
+  - `tests/test_cache_policy.py` — 신규 6 cases (default/disabled/force_invalidate/custom_ttl/frozen_immutable/negative_ttl_rejected)
+- **변경 전 코드**: 없음 — 신규 모듈
+- **변경 후 코드** (per file)
+  ```python
+  # file: best_agent_base/llm/cache_policy.py
+  """CachePolicy frozen 모델 — 도메인이 캐시 동작을 명시 컨트롤 (FR-5, D3)."""
+
+  from __future__ import annotations
+
+  from pydantic import BaseModel, ConfigDict, Field
+
+
+  class CachePolicy(BaseModel):
+      """캐시 컨트롤 정책. 도메인이 generate() 호출 시 주입.
+
+      - enabled: 캐시 사용 여부 (False 면 매 호출 신규)
+      - ttl_seconds: Gemini CachedContent TTL (초)
+      - force_invalidate: True 면 기존 캐시 무시하고 신규 생성
+      """
+
+      model_config = ConfigDict(frozen=True)
+
+      enabled: bool = True
+      ttl_seconds: int = Field(default=3600, gt=0)
+      force_invalidate: bool = False
+  ```
+  ```python
+  # file: tests/test_cache_policy.py
+  """CachePolicy frozen 모델 검증 (FR-5, AC-5)."""
+
+  from __future__ import annotations
+
+  import pytest
+  from pydantic import ValidationError
+
+  from best_agent_base.llm.cache_policy import CachePolicy
+
+
+  def test_default_policy_enabled():
+      p = CachePolicy()
+      assert p.enabled is True
+      assert p.ttl_seconds == 3600
+      assert p.force_invalidate is False
+
+
+  def test_disabled_policy():
+      p = CachePolicy(enabled=False)
+      assert p.enabled is False
+
+
+  def test_force_invalidate():
+      p = CachePolicy(force_invalidate=True)
+      assert p.force_invalidate is True
+
+
+  def test_custom_ttl():
+      p = CachePolicy(ttl_seconds=60)
+      assert p.ttl_seconds == 60
+
+
+  def test_frozen_immutable():
+      p = CachePolicy()
+      with pytest.raises(ValidationError):
+          p.enabled = False  # type: ignore[misc]
+
+
+  def test_negative_ttl_rejected():
+      with pytest.raises(ValidationError):
+          CachePolicy(ttl_seconds=-1)
+  ```
+- **검증**: `uv run pytest tests/test_cache_policy.py -v` → 6 passed (RED→GREEN 사이클 완료).
+- **연관 항목**: CH-20260503-003 (구현계획서 — Task 2 정의), CH-20260503-004 (Task 1 deps 교체 — google-genai 환경 위에서 본 모델 동작)
