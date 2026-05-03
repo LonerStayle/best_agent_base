@@ -51,11 +51,10 @@ class GeminiClient:
         self._last_hash: str | None = None  # HASH_CHANGE 감지용
 
     def _lock_for(self, key: str) -> asyncio.Lock:
-        lock = self._locks.get(key)
-        if lock is None:
-            lock = asyncio.Lock()
-            self._locks[key] = lock
-        return lock
+        # setdefault 로 dict-level atomic — 동시 호출에서도 단일 Lock 공유 보장.
+        # (R-1: get/set 사이 await 없어도 미래 refactor 가 await 추가 시 race 가능,
+        #  setdefault 가 더 robust. 새 Lock 한 번 throwaway 가능하지만 무해.)
+        return self._locks.setdefault(key, asyncio.Lock())
 
     async def _get_or_create_cached_content(
         self, key: str, static_text: str, ttl_seconds: int
@@ -91,7 +90,9 @@ class GeminiClient:
         static_text, dynamic_text = build_gemini_messages(ctx)
         key = _cache_key_for(ctx)
 
-        # HASH_CHANGE 감지 (R-4 가시성)
+        # HASH_CHANGE 감지 (R-4 가시성). 메트릭 계약: HASH_CHANGE 는
+        # *항상 같은 호출의 MISS 직전* 에 발생하는 causal 어노테이션이므로
+        # 도메인 메트릭 측에서 HASH_CHANGE + MISS 를 합산하면 cache 압력 overcount.
         if self._last_hash is not None and self._last_hash != key:
             self._metrics.emit(CacheEvent.HASH_CHANGE, key)
         self._last_hash = key
