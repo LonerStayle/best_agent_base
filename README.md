@@ -20,16 +20,37 @@
 
 ## Setup
 
+### 1. 의존성 설치
+
 ```bash
-# 1. 의존성 설치 (자동으로 .venv 생성)
-uv sync
+uv sync   # .venv 자동 생성 + 모든 deps 설치
+```
 
-# 2. 환경 변수 설정
+> Python 3.12+ 필요. 현재 머신 버전 확인: `python --version`
+
+### 2. 환경 변수
+
+```bash
 cp .env.example .env
-# .env 파일에 GOOGLE_API_KEY 입력
+# .env 에 GOOGLE_API_KEY 채움
+```
 
-# 3. 동작 확인
-uv run main.py
+### 3. 로컬 인프라 부팅 (Postgres + Redis)
+
+```bash
+docker compose up -d
+docker compose ps   # 둘 다 (healthy) 확인
+```
+
+> Postgres 호스트 포트는 **5435** (5432 가 다른 프로젝트에 점유돼 있어 충돌 회피).
+> 자세한 사용·접속·트러블슈팅은 [`docs/local-dev-setup.md`](docs/local-dev-setup.md) 참조.
+
+### 4. 동작 확인
+
+```bash
+uv run pytest        # 테스트 통과
+uv run ruff check .  # 린트 통과
+uv run main.py       # Gemini 단일 노드 데모
 ```
 
 ---
