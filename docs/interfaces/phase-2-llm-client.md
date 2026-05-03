@@ -213,7 +213,7 @@ client = GeminiClient(metrics=metrics)
 ## 6. 다른 모듈과의 연계
 
 - **시스템 프롬프트 모듈**: 본 모듈의 `static_hash` 캐시 키 = 시스템 프롬프트 모듈의 `get_static_hash(ctx)`. 정적부 결정성이 본 모듈의 캐시 적중률 source of truth.
-- **도구 시스템 (후속)**: 도구 카탈로그 자체도 정적/동적 분리 예정. always-load 도구 = 정적부 (캐시 대상), deferred 도구 = 동적부. 본 모듈의 메시지 빌더 (`build_gemini_messages`) 가 도구 description 도 boundary 기준으로 split.
+- **도구 시스템 (후속)**: 도구 카탈로그 자체도 정적/동적 분리 예정. always-load 도구 = 정적부 (캐시 대상), deferred 도구 = 동적부. 본 모듈의 boundary split 헬퍼 (`split_at_boundary`) 가 도구 description 도 boundary 기준으로 split.
 - **컨텍스트 관리 (후속)**: `count_tokens` 가 현재 placeholder (`int(words * 1.3)`). 컨텍스트 관리 단계에서 SDK 의 정확한 count API (`client.models.count_tokens` / `client.messages.count_tokens`) 로 교체 예정.
 - **Hooks 시스템 (후속)**: `PreModelCall` / `PostModelCall` 훅이 추가되면 본 모듈의 `generate` 가 그 훅 발동 지점.
 - **API 노출 (FastAPI)**: 본 모듈이 노출하는 비동기 `generate` 가 FastAPI 의 streaming endpoint 의 진입점.
@@ -321,10 +321,10 @@ class CacheMetrics:
 from best_agent_base.prompts.render import RenderContext
 
 
-def build_gemini_messages(ctx: RenderContext) -> tuple[str, str]:
+def split_at_boundary(ctx: RenderContext) -> tuple[str, str]:
     """Returns (static_text, dynamic_text), split at SYSTEM_PROMPT_DYNAMIC_BOUNDARY.
 
-    provider-agnostic — Gemini / Anthropic 어댑터 모두 재사용.
+    provider-agnostic — Gemini / Anthropic 어댑터 모두 동일 split 재사용.
     """
 ```
 

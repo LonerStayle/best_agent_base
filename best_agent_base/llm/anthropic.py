@@ -15,7 +15,7 @@ from anthropic import AsyncAnthropic
 from best_agent_base.llm.cache_metrics import CacheEvent, CacheMetrics
 from best_agent_base.llm.cache_policy import CachePolicy
 from best_agent_base.llm.client import LLMResponse, TokenUsage
-from best_agent_base.llm.messages import build_gemini_messages  # boundary split 재사용
+from best_agent_base.llm.messages import split_at_boundary
 from best_agent_base.prompts.render import RenderContext, get_static_hash
 
 
@@ -59,7 +59,7 @@ class AnthropicClient:
         에러 envelope 변환은 도구 베이스 Phase 의 본질이라 본 어댑터에서 흡수하지 않음.
         """
         policy = cache_policy if cache_policy is not None else CachePolicy()
-        static_text, dynamic_text = build_gemini_messages(ctx)
+        static_text, dynamic_text = split_at_boundary(ctx)
         key = get_static_hash(ctx)
 
         # HASH_CHANGE 가시성 (R-2). 메트릭 계약: HASH_CHANGE 는 같은 호출 안의 후속

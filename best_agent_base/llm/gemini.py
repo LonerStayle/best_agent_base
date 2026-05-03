@@ -16,7 +16,7 @@ from google.genai import types
 from best_agent_base.llm.cache_metrics import CacheEvent, CacheMetrics
 from best_agent_base.llm.cache_policy import CachePolicy
 from best_agent_base.llm.client import LLMResponse, TokenUsage
-from best_agent_base.llm.messages import build_gemini_messages
+from best_agent_base.llm.messages import split_at_boundary
 from best_agent_base.llm.profiles import DEFAULT_CHAT, ModelProfile
 from best_agent_base.prompts.render import RenderContext, get_static_hash
 
@@ -87,7 +87,7 @@ class GeminiClient:
         cache_policy: CachePolicy | None = None,
     ) -> LLMResponse:
         policy = cache_policy if cache_policy is not None else CachePolicy()
-        static_text, dynamic_text = build_gemini_messages(ctx)
+        static_text, dynamic_text = split_at_boundary(ctx)
         key = _cache_key_for(ctx)
 
         # HASH_CHANGE 감지 (R-4 가시성). 메트릭 계약: HASH_CHANGE 는
