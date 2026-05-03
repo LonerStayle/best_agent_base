@@ -560,7 +560,7 @@ git commit -m "feat(llm): add build_gemini_messages (Phase 2 Task 5)"
 
 이 task 는 가장 큼 — TDD step 을 5에서 7 로 확장 (cache hit / cache miss / race lock 각각 검증).
 
-- [ ] **Step 1: failing tests 작성 (gemini adapter)**
+- [x] **Step 1: failing tests 작성 (gemini adapter)**
 
 ```python
 # tests/test_gemini_adapter.py
@@ -681,7 +681,7 @@ def test_count_tokens_slot_returns_int(monkeypatch: pytest.MonkeyPatch):
     assert n >= 0
 ```
 
-- [ ] **Step 2: failing test 작성 (cache key stability)**
+- [x] **Step 2: failing test 작성 (cache key stability)**
 
 ```python
 # tests/test_cache_key_stability.py
@@ -699,7 +699,7 @@ def test_same_ctx_same_key_n10():
     assert len(keys) == 1
 ```
 
-- [ ] **Step 3: RED 확인**
+- [x] **Step 3: RED 확인**
 
 ```bash
 uv run pytest tests/test_gemini_adapter.py tests/test_cache_key_stability.py -v
@@ -707,7 +707,7 @@ uv run pytest tests/test_gemini_adapter.py tests/test_cache_key_stability.py -v
 
 Expected: FAIL (LangChain 기반 옛 gemini.py 라 새 GeminiClient 클래스 없음).
 
-- [ ] **Step 4: gemini.py 재작성 (LangChain 제거 + GeminiClient + cache lock)**
+- [x] **Step 4: gemini.py 재작성 (LangChain 제거 + GeminiClient + cache lock)**
 
 ```python
 # best_agent_base/llm/gemini.py
@@ -861,7 +861,7 @@ class GeminiClient:
         return int(len(text.split()) * 1.3)
 ```
 
-- [ ] **Step 5: GREEN 확인**
+- [x] **Step 5: GREEN 확인**
 
 ```bash
 uv run pytest tests/test_gemini_adapter.py tests/test_cache_key_stability.py -v
@@ -869,7 +869,7 @@ uv run pytest tests/test_gemini_adapter.py tests/test_cache_key_stability.py -v
 
 Expected: 8 PASS (gemini_adapter 7 + cache_key_stability 1).
 
-- [ ] **Step 6: 전체 테스트 GREEN 확인 + ruff**
+- [x] **Step 6: 전체 테스트 GREEN 확인 + ruff**
 
 ```bash
 uv run pytest -v 2>&1 | tail -10 && uv run ruff check .
@@ -877,7 +877,7 @@ uv run pytest -v 2>&1 | tail -10 && uv run ruff check .
 
 Expected: 모든 테스트 GREEN, ruff clean.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add best_agent_base/llm/gemini.py tests/test_gemini_adapter.py tests/test_cache_key_stability.py
@@ -1826,3 +1826,229 @@ tech-design §6 R-1..6 매핑 — 각 위험을 구현 시 코드 한 줄 한 �
   ```
 - **검증**: `uv run pytest tests/test_llm_messages.py -v` → 2 passed (RED→GREEN 사이클 완료; RED 단계에서 `ModuleNotFoundError: No module named 'best_agent_base.llm.messages'` 확인). `uv run pytest -q` → 87 passed (전체 무회귀, 85 → 87). `uv run ruff format` / `uv run ruff check` → 통과.
 - **연관 항목**: CH-20260503-003 (구현계획서 — Task 5 정의), CH-20260503-007 (Task 4 LLMClient Protocol — `LLMClient.generate(ctx, ...)` 진입점에서 본 함수가 호출되어 ctx → (static, dynamic) 매핑 담당)
+
+### [코드-수정] 2026-05-03 — Task 6: GeminiClient 재작성 (google-genai + CachedContent + race lock)
+
+- **id**: CH-20260503-013
+- **이유**: FR-2 (Gemini provider CachedContent 통합) + FR-4 (정적 prefix 안정성으로 캐시 적중률 확보) / D1 (LangChain 제거 → google-genai 직접) / D6 (cache 생성 실패 → 캐시 우회 fallback) / R-1 (동시 호출 race → asyncio.Lock per static_hash) / R-2 (HASH_CHANGE 가시성) / AC-2, AC-4, AC-7 의 구현. Phase 2 의 핵심 — Phase 1 정적 7섹션이 Gemini `CachedContent.system_instruction` 으로 매핑되어 turn N≥2 부터 캐시 적중. context7 으로 `google-genai` v1_33_0 SDK 의 `client.aio.caches.create(model=..., config=types.CreateCachedContentConfig(system_instruction=..., ttl="3600s"))` / `client.aio.models.generate_content(model=..., contents=..., config=types.GenerateContentConfig(cached_content=cached.name))` / `usage_metadata.{prompt_token_count, candidates_token_count, cached_content_token_count}` / 반환 `CachedContent.name` 시그니처 5건 검증 — 모두 plan 코드와 일치 (시그니처 차이 0건).
+- **무엇이**: best_agent_base/llm/gemini.py (전면 재작성, 36 LOC → 145 LOC), tests/test_gemini_adapter.py (신규 ~120 LOC, 7 cases), tests/test_cache_key_stability.py (신규 ~13 LOC, 1 case). 본 plan 의 Task 6 Step 1~7 체크박스 7건도 [x] 로 마크.
+- **영향범위**: `best_agent_base/llm/gemini.py` 의 public surface 가 완전히 교체됨 — 이전 `get_gemini(profile) -> ChatGoogleGenerativeAI` 팩토리 함수 제거, 신규 `GeminiClient` 클래스 + `_build_genai_client` / `_cache_key_for` private 헬퍼. `GeminiClient` 는 `LLMClient` Protocol 을 구조적으로 만족 (runtime_checkable `isinstance` 통과 검증). 인스턴스 단위 `_cache_map: dict[str, str]` (D4) + `_locks: dict[str, asyncio.Lock]` (R-1) 보유 — 프로세스 재시작 시 캐시 리셋되며 `caches.create` 가 재호출됨 (D4 의도). `main.py` 의 `langgraph` 기반 호출은 Task 8 에서 마이그레이션 예정 (현재 미수정). 후속 Task 6.5 (AnthropicClient) 가 동일 `LLMClient` Protocol 패턴을 mirror — 본 task 가 reference 구현 역할. 95 tests pass (87 → 95, +8: gemini_adapter 7 + cache_key_stability 1).
+- **위험 카테고리**: race + side-effect — race 는 동일 `static_hash` 키에 대해 동시 N개 task 가 `caches.create` 를 호출하면 N개 CachedContent 가 생성되어 quota 낭비 + 일관성 깨짐 (R-1) → `_get_or_create_cached_content` 진입 직후 `async with self._lock_for(key)` 로 직렬화하고 lock 안에서 `_cache_map.get(key)` 재확인 (double-checked locking). `test_concurrent_calls_create_cache_once` 가 `asyncio.gather(*[generate() for _ in range(5)])` + 0.05s slow create 로 정확히 1회만 호출됨을 검증. side-effect 는 (a) 외부 SDK 호출 (`caches.create` / `models.generate_content`) 의 네트워크 부작용, (b) 인스턴스 상태 mutation (`_cache_map`, `_locks`, `_last_hash`) — 모두 인스턴스 단위라 격리되어 cross-instance 누출 없음. cache 생성 실패는 `_get_or_create_cached_content` 의 try/except 로 캐치 후 None 반환 → `generate` 가 `cached_name is None` 분기로 가서 `system_instruction=static_text` 직접 주입 모드 + MISS event emit 으로 fallback (D6).
+- **세부 변경 (3건)**:
+  - `best_agent_base/llm/gemini.py` — 전면 재작성. `langchain_google_genai.ChatGoogleGenerativeAI` 의존 제거 → `from google import genai` + `from google.genai import types`. 신규 `_build_genai_client()` (env var 검증 + `genai.Client(api_key=...)` 반환, monkeypatch hook), `_cache_key_for(ctx)` (Phase 1 `get_static_hash` thin wrapper), `class GeminiClient` (`__init__(profile, *, metrics=None)` / `_lock_for(key)` / `_get_or_create_cached_content(key, static_text, ttl_seconds)` / `async generate(ctx, *, cache_policy=None) -> LLMResponse` / `_extract_usage(result) -> TokenUsage` / `count_tokens(text) -> int`). `generate` 의 캐시 분기: enabled & not force_invalidate → map lookup → hit 이면 emit HIT, miss 이면 lock 안에서 create → emit MISS; force_invalidate → 기존 entry pop 후 재생성. HASH_CHANGE 는 `self._last_hash != key` 시 emit (R-2). SDK 호출은 `cached_name` 유무로 `GenerateContentConfig(cached_content=...)` vs `GenerateContentConfig(system_instruction=...)` 분기.
+  - `tests/test_gemini_adapter.py` — 신규 7 cases: `_make_client(monkeypatch)` 헬퍼 (fake SDK 주입 + `_build_genai_client` monkeypatch + `GOOGLE_API_KEY=fake-key`); `test_protocol_compliance` (runtime_checkable `isinstance(client, LLMClient)`); `test_first_call_creates_cache_emits_miss` (cache_hit=False, MISS event, `caches.create` 1회); `test_second_call_reuses_cache_emits_hit` (두 번째 호출 cache_hit=True + HIT event, `caches.create` 0회); `test_disabled_policy_skips_cache` (`CachePolicy(enabled=False)` 시 caches.create 미호출); `test_force_invalidate_creates_new_cache` (force_invalidate True 시 기존 entry 무시 + 신규 create); `test_concurrent_calls_create_cache_once` (R-1 race 검증, `asyncio.gather` 5회 + 0.05s slow create → `await_count == 1`); `test_count_tokens_slot_returns_int` (Phase 9 본격 전 `int(words * 1.3)` 추정).
+  - `tests/test_cache_key_stability.py` — 신규 1 case: `test_same_ctx_same_key_n10` (`_cache_key_for(RenderContext())` N=10 → set 크기 1, NFR-3/AC-7).
+- **변경 전 코드** (`best_agent_base/llm/gemini.py`)
+  ```python
+  """Gemini LLM 팩토리.
+
+  제약: 모델·파라미터는 반드시 `ModelProfile` 을 통해 전달 (raw string/숫자 인자 금지).
+  프리셋: `DEFAULT_CHAT` (FLASH, temp=0) / `DEFAULT_REASONING` (PRO, temp=0).
+  도메인은 자기 프로파일을 정의해 주입.
+  """
+
+  from __future__ import annotations
+
+  import os
+
+  from langchain_google_genai import ChatGoogleGenerativeAI
+
+  from best_agent_base.llm.profiles import DEFAULT_CHAT, ModelProfile
+
+
+  def get_gemini(profile: ModelProfile = DEFAULT_CHAT) -> ChatGoogleGenerativeAI:
+      """프로파일 기반 Gemini 인스턴스 생성.
+
+      GOOGLE_API_KEY 또는 GEMINI_API_KEY 환경변수 필요.
+      """
+      api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+      if not api_key:
+          raise RuntimeError("GOOGLE_API_KEY 또는 GEMINI_API_KEY 환경 변수가 설정되어 있지 않습니다.")
+
+      kwargs: dict = {
+          "model": profile.model.value,
+          "temperature": profile.temperature,
+          "max_output_tokens": profile.max_output_tokens,
+          "google_api_key": api_key,
+      }
+      if profile.top_p is not None:
+          kwargs["top_p"] = profile.top_p
+
+      return ChatGoogleGenerativeAI(**kwargs)
+  ```
+- **변경 후 코드** (per file)
+  ```python
+  # file: best_agent_base/llm/gemini.py
+  """Gemini 어댑터 — google-genai 직접, CachedContent 통합 (FR-2, FR-4, D1).
+
+  LangChain 제거 (D1 결정). 인스턴스 단위 in-memory cache map (D4).
+  asyncio.Lock per static_hash 로 R-1 race 완화. SDK 예외는 그대로 전파 (D6),
+  단 cache 생성 실패는 캐시 우회 + miss event 후 일반 호출 fallback.
+  """
+
+  from __future__ import annotations
+
+  import asyncio
+  import os
+
+  from google import genai
+  from google.genai import types
+
+  from best_agent_base.llm.cache_metrics import CacheEvent, CacheMetrics
+  from best_agent_base.llm.cache_policy import CachePolicy
+  from best_agent_base.llm.client import LLMResponse, TokenUsage
+  from best_agent_base.llm.messages import build_gemini_messages
+  from best_agent_base.llm.profiles import DEFAULT_CHAT, ModelProfile
+  from best_agent_base.prompts.render import RenderContext, get_static_hash
+
+
+  def _build_genai_client() -> genai.Client:
+      """google-genai SDK Client 인스턴스. 테스트에서 monkeypatch 가능."""
+      api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+      if not api_key:
+          raise RuntimeError("GOOGLE_API_KEY 또는 GEMINI_API_KEY 환경 변수가 설정되어 있지 않습니다.")
+      return genai.Client(api_key=api_key)
+
+
+  def _cache_key_for(ctx: RenderContext) -> str:
+      """캐시 키 = Phase 1 의 정적 해시. 결정성 보장 (NFR-3)."""
+      return get_static_hash(ctx)
+
+
+  class GeminiClient:
+      """LLMClient 적합 Gemini 참조 구현. 인스턴스 단위 in-memory cache map (D4)."""
+
+      def __init__(
+          self,
+          profile: ModelProfile = DEFAULT_CHAT,
+          *,
+          metrics: CacheMetrics | None = None,
+      ) -> None:
+          self._profile = profile
+          self._metrics = metrics if metrics is not None else CacheMetrics()
+          self._sdk = _build_genai_client()
+          self._cache_map: dict[str, str] = {}  # static_hash → cachedContents/<id>
+          self._locks: dict[str, asyncio.Lock] = {}  # per-hash race lock (R-1)
+          self._last_hash: str | None = None  # HASH_CHANGE 감지용
+
+      def _lock_for(self, key: str) -> asyncio.Lock:
+          lock = self._locks.get(key)
+          if lock is None:
+              lock = asyncio.Lock()
+              self._locks[key] = lock
+          return lock
+
+      async def _get_or_create_cached_content(
+          self, key: str, static_text: str, ttl_seconds: int
+      ) -> str | None:
+          """캐시 조회·생성. 실패 시 None 반환 → 호출자가 캐시 우회 fallback (D6)."""
+          async with self._lock_for(key):
+              existing = self._cache_map.get(key)
+              if existing is not None:
+                  return existing
+              try:
+                  cached = await self._sdk.aio.caches.create(
+                      model=self._profile.model.value,
+                      config=types.CreateCachedContentConfig(
+                          system_instruction=static_text,
+                          ttl=f"{ttl_seconds}s",
+                      ),
+                  )
+              except Exception:
+                  # 캐시 생성 실패는 호출 자체를 막지 않음 (D6 fallback)
+                  return None
+              cache_name = getattr(cached, "name", None)
+              if cache_name is not None:
+                  self._cache_map[key] = cache_name
+              return cache_name
+
+      async def generate(
+          self,
+          ctx: RenderContext,
+          *,
+          cache_policy: CachePolicy | None = None,
+      ) -> LLMResponse:
+          policy = cache_policy if cache_policy is not None else CachePolicy()
+          static_text, dynamic_text = build_gemini_messages(ctx)
+          key = _cache_key_for(ctx)
+
+          # HASH_CHANGE 감지 (R-4 가시성)
+          if self._last_hash is not None and self._last_hash != key:
+              self._metrics.emit(CacheEvent.HASH_CHANGE, key)
+          self._last_hash = key
+
+          cached_name: str | None = None
+          cache_hit = False
+
+          if policy.enabled and not policy.force_invalidate:
+              cached_name = self._cache_map.get(key)
+              if cached_name is not None:
+                  cache_hit = True
+                  self._metrics.emit(CacheEvent.HIT, key)
+          if policy.enabled and (cached_name is None or policy.force_invalidate):
+              if policy.force_invalidate:
+                  self._cache_map.pop(key, None)
+              cached_name = await self._get_or_create_cached_content(
+                  key, static_text, policy.ttl_seconds
+              )
+              self._metrics.emit(CacheEvent.MISS, key)
+
+          # SDK 호출 — cached_content 가 있으면 system_instruction 우회, 없으면 직접 주입
+          config = (
+              types.GenerateContentConfig(cached_content=cached_name)
+              if cached_name is not None
+              else types.GenerateContentConfig(system_instruction=static_text)
+          )
+          result = await self._sdk.aio.models.generate_content(
+              model=self._profile.model.value,
+              contents=dynamic_text or " ",
+              config=config,
+          )
+
+          usage = self._extract_usage(result)
+          return LLMResponse(
+              text=getattr(result, "text", ""),
+              static_hash=key,
+              cache_hit=cache_hit,
+              usage=usage,
+          )
+
+      @staticmethod
+      def _extract_usage(result: object) -> TokenUsage:
+          meta = getattr(result, "usage_metadata", None)
+          if meta is None:
+              return TokenUsage(input_tokens=0, output_tokens=0)
+          return TokenUsage(
+              input_tokens=getattr(meta, "prompt_token_count", 0) or 0,
+              output_tokens=getattr(meta, "candidates_token_count", 0) or 0,
+              cached_tokens=getattr(meta, "cached_content_token_count", 0) or 0,
+          )
+
+      def count_tokens(self, text: str) -> int:
+          # Phase 9 본격 — 현재는 conservative 추정 (단어 1.3토큰 가정)
+          return int(len(text.split()) * 1.3)
+  ```
+  ```python
+  # file: tests/test_gemini_adapter.py (신규, 7 cases)
+  # — 헬퍼 _make_client(monkeypatch) 가 fake SDK 주입 + _build_genai_client monkeypatch + env var.
+  # — protocol_compliance / first_call_creates_cache_emits_miss / second_call_reuses_cache_emits_hit /
+  #   disabled_policy_skips_cache / force_invalidate_creates_new_cache / concurrent_calls_create_cache_once /
+  #   count_tokens_slot_returns_int. 자세한 테스트 본문은 파일 참조.
+  ```
+  ```python
+  # file: tests/test_cache_key_stability.py (신규, 1 case)
+  """캐시 키 결정성 검증 (NFR-3, AC-7) — 동일 ctx → 동일 key, N=10 안정."""
+
+  from __future__ import annotations
+
+  from best_agent_base.llm.gemini import _cache_key_for
+  from best_agent_base.prompts.render import RenderContext
+
+
+  def test_same_ctx_same_key_n10():
+      ctx = RenderContext()
+      keys = {_cache_key_for(ctx) for _ in range(10)}
+      assert len(keys) == 1
+  ```
+- **검증**: `uv run pytest tests/test_gemini_adapter.py tests/test_cache_key_stability.py -v` → 8 passed (RED→GREEN 사이클 완료; RED 단계에서 `ModuleNotFoundError: No module named 'langchain_google_genai'` 확인 — Task 1 의 deps 제거가 옛 import 를 깨뜨려 정확히 RED 가 됐음). `uv run pytest -v` → 95 passed (전체 무회귀, 87 → 95). `uv run ruff check best_agent_base/llm/gemini.py tests/test_gemini_adapter.py tests/test_cache_key_stability.py` → All checks passed (ruff baseline 의 9건은 Phase 1 demo notebook 관련 pre-existing — 본 task 미증가). context7 `/googleapis/python-genai` v1_33_0 시그니처 검증 결과: (a) `client.aio.caches.create(model, config=types.CreateCachedContentConfig(system_instruction, ttl="<N>s"))` 일치, (b) `CachedContent.name` 속성 (`cachedContents/<id>` 형식) 일치, (c) `client.aio.models.generate_content(model, contents, config=types.GenerateContentConfig(cached_content=...))` 일치, (d) `usage_metadata.{prompt_token_count, candidates_token_count, cached_content_token_count}` 일치, (e) `from google import genai` + `from google.genai import types` import path 일치 — plan 코드와 시그니처 차이 0건. 단 한 가지 fake mock 패턴 보정: `MagicMock(name="...")` 의 `name` 은 mock repr 용 인자라 attribute 로 안 잡힘 → 별도 `m = MagicMock(); m.name = "cachedContents/abc"` 패턴으로 변경했고, 그에 맞춰 prod 코드도 plan 의 `name_attr` fallback 제거하고 `getattr(cached, "name", None)` 만 사용 (SDK 실제 속성과 정확히 일치).
+- **연관 항목**: CH-20260503-003 (구현계획서 — Task 6 정의), CH-20260503-005 (Task 2 CachePolicy — `generate(cache_policy=...)` 파라미터로 직접 사용), CH-20260503-006 (Task 3 CacheMetrics — HIT/MISS/HASH_CHANGE event emit 통합), CH-20260503-007 (Task 4 LLMClient Protocol — `GeminiClient` 가 본 Protocol 의 reference 구현; runtime_checkable `isinstance` 통과), CH-20260503-008 (Task 5 build_gemini_messages — `generate` 진입점에서 호출되어 ctx → (static, dynamic) 매핑), CH-20260503-012 (Task 6.5 AnthropicClient — 본 task 와 동일 `LLMClient` Protocol 패턴을 mirror 할 다음 어댑터)
