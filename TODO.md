@@ -122,15 +122,20 @@ CC 분석 문서에서 반복적으로 확인된 5가지 핵심 컨셉. 모든 �
 
 **위치**: `docs/interfaces/phase-<N>-<slug>.md` (예: `docs/interfaces/phase-1-prompts.md`)
 
-**필수 섹션** (8개):
+**필수 섹션 순서** (외부 공개 가능성 고려해서 사용 예시가 항상 가장 위, 전체 시그니처는 reference 로 맨 아래):
+
 1. **모듈 책임** — 한 줄. "이 모듈은 무엇을 하는가."
-2. **Public API** — import 가능 심볼 전체 (함수·클래스·상수 시그니처 + 1-2줄 설명). 코드 블록으로.
+2. **사용 예시** — 도메인 입장에서 가장 흔한 use case 1-4개. 복붙 가능한 완성 코드 우선. (가장 먼저 보이도록.)
 3. **핵심 개념** — 도표/다이어그램 (ASCII art 또는 mermaid). 데이터 흐름·의존성·계약.
-4. **사용 예시** — 도메인 입장에서 가장 흔한 use case 1-3개. 복붙 가능한 완성 코드.
-5. **확장 포인트** — `register()` / override / Protocol 시그니처. "이렇게 갈아끼우세요" 가이드.
-6. **위험·주의사항** — `<slug>-tech-design.md §6` 의 R-N 중 도메인 사용자가 알아야 할 것 (race·breaking·perf·side-effect).
-7. **다음 Phase 연계** — 이 인터페이스가 Phase N+1, N+M 에서 어떻게 확장·소비되는지.
-8. **데모 노트북 / 참조 코드** — `notebooks/phase-<N>-*.ipynb` 또는 `examples/` 링크.
+4. **확장 포인트** — `register()` / override / Protocol 시그니처. "이렇게 갈아끼우세요" 가이드 + 금지 사항.
+5. **위험·주의사항** — `<slug>-tech-design.md §6` 의 R-N 중 도메인 사용자가 알아야 할 것 (race·breaking·perf·side-effect). 내부용 R-N id 는 그대로 노출 OK.
+6. **다른 모듈과의 연계** — 이 인터페이스가 다른 모듈에서 어떻게 확장·소비되는지. **Phase 번호 사용 금지** — 외부 reader 는 Phase 번호 의미 모름. 반드시 **기능 명칭** (예: "캐시 메트릭", "도구 시스템", "Hooks 시스템", "API 노출 (FastAPI)") 으로 표현.
+7. **데모 노트북 / 참조 코드** — `notebooks/phase-<N>-*.ipynb` 또는 `examples/` + `tests/test_*.py` 링크.
+8. **Public API (Reference)** — import 가능 심볼 전체 시그니처 (함수·클래스·상수). 코드 블록으로. 위 §2 사용 예시로 감 잡은 후 reference 용도. import 룰 (D-13 / 풀 경로) 도 같이.
+
+**문서 본문에 두지 않는 것**:
+- 변경이력 섹션 (인터페이스 문서엔 두지 않음 — 변경 추적은 `docs/features/<date>-<slug>/<slug>-implementation-plan.md` 의 `## 변경이력` 에서)
+- 내부 결정 ID (D1-N) 의 풀 설명 — 짧게 참조만 (`(D-13)` 등) OK, 상세는 tech-design 에 둠
 
 **산출 시점**: 9 task 완료 + final code review APPROVED 시점, change-history `[코드-수정]` 직후, `finishing-a-development-branch` 진입 직전.
 
@@ -211,7 +216,10 @@ CC 분석 문서에서 반복적으로 확인된 5가지 핵심 컨셉. 모든 �
 
 ---
 
-## 🧱 Phase 1 — 시스템 프롬프트 기법 (정적/동적 분리)
+## 🧱 Phase 1 — 시스템 프롬프트 기법 (정적/동적 분리)  ✅ 완료 (main `1a0231e` 머지, 70/70 tests)
+
+> **산출물**: `docs/features/2026-05-03-phase-1-prompts/` (PRD + tech-design + impl-plan, CH-001..004) / `docs/interfaces/phase-1-prompts.md` (공식 인터페이스 가이드) / `notebooks/phase-1-prompts-demo.ipynb` (데모)
+> **결과**: 9 task subagent-driven 완료, 41 신규 tests (29 → 70), final code review APPROVED, ruff clean
 
 > **참조 (필수)**:
 > - `prompt-engineering-techniques.md` — 정적/동적 경계 마커 메커니즘
@@ -234,19 +242,22 @@ CC 분석 문서에서 반복적으로 확인된 5가지 핵심 컨셉. 모든 �
 
 ### 작업 항목
 
-- [ ] **Section Protocol** — `class PromptSection(Protocol)` (`name`, `static: bool`, `render(ctx) -> str`). 7 섹션이 인스턴스, 도메인이 contents 주입 또는 교체 가능
-- [ ] 7 섹션 골격을 `prompts/sections.py` 의 데이터 구조로 (이름·정적/동적 분류·기본 디폴트 콘텐츠 — 디폴트는 *도메인-중립* 한 일반 가이드라인만)
-- [ ] `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 마커로 정적/동적 경계 구현 (`prompts/boundary.py`)
-- [ ] `dangerous_uncached(name, content, reason)` 헬퍼 — 캐시를 깨는 섹션은 이유까지 명시·기록 (관찰 데이터 축적)
-- [ ] 조건부 섹션은 무조건 동적 영역으로 (정적에 `if` 두지 말기 — 캐시 변형 회피)
-- [ ] 정적 섹션 해시 → 캐시 적중률 측정용 로깅 (Phase 2 캐시 메트릭과 연동 준비)
-- [ ] **PromptBuilder** — 등록된 7 섹션 + dynamic 섹션을 합쳐 최종 프롬프트 string 생성 (정적/동적 경계 마커 포함)
-- [ ] **Domain override hook** — 도메인이 특정 섹션의 콘텐츠를 교체·확장할 수 있는 register API
-- [ ] 단위 테스트:
-  - 정적 섹션 안정성 (동일 입력 → 동일 해시)
-  - 동적 섹션 변동 허용 (매 turn 다른 출력 OK)
-  - 도메인 콘텐츠 교체 시 정적/동적 분리 유지
-  - 7 섹션 순서·ID 일관성
+- [x] **Section Protocol** — `PromptSection(Protocol, runtime_checkable)` 7 섹션 인스턴스 (`prompts/sections.py`)
+- [x] 7 섹션 골격 + 도메인-중립 default 텍스트 (`prompts/sections.py` 의 `_BaseSection` + `BASE_SECTIONS` 튜플)
+- [x] `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 마커 + R-5 충돌 가드 (`prompts/boundary.py` + `prompts/render.py`)
+- [x] `dangerous_uncached(*, name, content, reason)` 헬퍼 + `DangerousUncached(BaseModel frozen, reason min_length=1)` (R-4 mitigation)
+- [x] 정적 섹션은 `BASE_SECTIONS` 순회·동적은 `static=False` 분류 (`_render_static`/`_render_dynamic` 분리)
+- [x] `get_static_hash(ctx) → sha256[:16]` 캐시 측정 슬롯 (`prompts/render.py`)
+- [x] **render(ctx) → str** — 정적 7섹션 + BOUNDARY + 동적부 조립 (`prompts/render.py`)
+- [x] **`SectionRegistry` + `registry.register(name, section)` API** — 베이스 0줄 수정 override (D-8) (`prompts/registry.py`)
+- [x] 단위 테스트 8 파일 41건:
+  - `test_prompts_sections.py` (Protocol/이름/static/render)
+  - `test_prompts_static_stability.py` (해시 N=10 동일)
+  - `test_prompts_render.py` (동적 변동 허용)
+  - `test_prompts_registry.py` (register/override 격리)
+  - `test_prompts_dangerous_uncached.py` / `test_prompts_cache_slot.py` / `test_no_domain_vocab.py` / `test_init_purity.py`
+- [x] **공식 인터페이스 가이드** `docs/interfaces/phase-1-prompts.md` (산출물 룰 첫 적용)
+- [x] **데모 노트북** `notebooks/phase-1-prompts-demo.ipynb`
 
 ---
 
