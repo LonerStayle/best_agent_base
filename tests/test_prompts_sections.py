@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from best_agent_base.prompts.sections import (  # noqa: F401
+from best_agent_base.prompts.render import RenderContext
+from best_agent_base.prompts.sections import (  # noqa: F401  # 6 unused = export contract check
     BASE_SECTIONS,
     DoingTasks,
     ExecutingActions,
@@ -44,8 +45,6 @@ def test_intro_static_true():
 
 def test_section_render_returns_str():
     """render(ctx) 가 str 반환 (RenderContext 더미로)."""
-    from best_agent_base.prompts.render import RenderContext
-
     ctx = RenderContext()
     for section in BASE_SECTIONS:
         result = section.render(ctx)
@@ -61,7 +60,5 @@ def test_protocol_runtime_check():
 
 def test_no_coding_vocab_in_intro():
     """베이스 Intro 콘텐츠가 도메인-중립 (코딩 어휘 X). NFR-3 스파이크."""
-    from best_agent_base.prompts.render import RenderContext
-
     text = Intro.render(RenderContext()).lower()
     assert "code" not in text and "python" not in text and "pep" not in text

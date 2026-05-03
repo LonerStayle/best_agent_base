@@ -75,7 +75,7 @@ class _UsingTools(_BaseSection):
     name = "UsingTools"
     static = True
     _text = (
-        "Prefer dedicated tools over generic shell calls when one fits. "
+        "Prefer dedicated tools over generic fallbacks when one fits. "
         "Make independent tool calls in parallel; sequence calls only when "
         "later calls depend on earlier results."
     )
