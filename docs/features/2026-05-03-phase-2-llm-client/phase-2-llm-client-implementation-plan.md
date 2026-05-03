@@ -1167,7 +1167,7 @@ git commit -m "feat(llm): add AnthropicClient with cache_control marker (Phase 2
 
 매핑: NFR-1, NFR-2 / AC-8, AC-9
 
-- [ ] **Step 1: 현재 테스트 파일 확인**
+- [x] **Step 1: 현재 테스트 파일 확인**
 
 ```bash
 cat tests/test_init_purity.py tests/test_no_domain_vocab.py
@@ -1175,7 +1175,7 @@ cat tests/test_init_purity.py tests/test_no_domain_vocab.py
 
 Expected: Phase 1 패턴 — `prompts/__init__.py` 만 검증.
 
-- [ ] **Step 2: test_init_purity.py 확장 (LLM `__init__` 추가)**
+- [x] **Step 2: test_init_purity.py 확장 (LLM `__init__` 추가)**
 
 기존 검증 대상 리스트에 `best_agent_base/llm/__init__.py` 추가. AST 로 docstring-only 인지 검사.
 
@@ -1190,7 +1190,7 @@ TARGETS = [
 
 (정확한 변경 위치는 기존 파일 구조에 따라 — 리스트가 있으면 항목 추가, 없으면 동일 검증을 별도 함수로 추가.)
 
-- [ ] **Step 3: test_no_domain_vocab.py 확장 (LLM 트리 추가)**
+- [x] **Step 3: test_no_domain_vocab.py 확장 (LLM 트리 추가)**
 
 기존 grep 대상 트리 리스트에 `best_agent_base/llm/` 추가:
 
@@ -1204,7 +1204,7 @@ SCAN_DIRS = [
 
 (정확한 변경 위치는 기존 파일 구조에 따라 조정.)
 
-- [ ] **Step 4: 두 테스트 GREEN 확인**
+- [x] **Step 4: 두 테스트 GREEN 확인**
 
 ```bash
 uv run pytest tests/test_init_purity.py tests/test_no_domain_vocab.py -v
@@ -1212,7 +1212,7 @@ uv run pytest tests/test_init_purity.py tests/test_no_domain_vocab.py -v
 
 Expected: PASS. 만약 RED 면 forbidden 어휘를 src 에서 제거해야 함 (Task 2~6 작성 시 NFR-1 일관 적용했으면 통과).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tests/test_init_purity.py tests/test_no_domain_vocab.py
@@ -2216,3 +2216,112 @@ tech-design §6 R-1..6 매핑 — 각 위험을 구현 시 코드 한 줄 한 �
   ```
 - **검증**: `uv run pytest tests/test_anthropic_adapter.py -v` → 5 passed (RED→GREEN 사이클 완료; RED 단계에서 `ModuleNotFoundError: No module named 'best_agent_base.llm.anthropic'` 확인). `uv run pytest -v` → 100 passed (전체 무회귀, 95 → 100). `uv run ruff check best_agent_base/llm/anthropic.py tests/test_anthropic_adapter.py` → All checks passed. context7 `/anthropics/anthropic-sdk-python` 시그니처 검증 결과: (a) `AsyncAnthropic(api_key=...)` constructor + 기본 env `ANTHROPIC_API_KEY` 일치, (b) `await client.messages.create(model, max_tokens, system, messages)` 시그니처 일치 — `system` 파라미터가 string 또는 list of TextBlockParam dict 둘 다 수용, (c) `system=[{"type":"text", "text":..., "cache_control":{"type":"ephemeral"}}]` snake_case dict 키 구조 일치 (Anthropic Prompt Caching 표준 API), (d) `usage.input_tokens` / `usage.output_tokens` / `usage.cache_read_input_tokens` / `usage.cache_creation_input_tokens` snake_case 필드명 일치, (e) `message.content[0].text` 구조 일치 (TextBlock with `type` + `text` 속성). 최신 model id `claude-sonnet-4-5-20250929` 도 context7 example 코드에서 일관 사용 — plan 의 디폴트와 일치. 시그니처 차이 0건.
 - **연관 항목**: CH-20260503-003 (구현계획서 — Task 6.5 정의), CH-20260503-005 (Task 2 CachePolicy — `generate(cache_policy=...)` 파라미터로 직접 사용), CH-20260503-006 (Task 3 CacheMetrics — HIT/MISS/HASH_CHANGE event emit 통합), CH-20260503-007 (Task 4 LLMClient Protocol — `AnthropicClient` 가 본 Protocol 의 두 번째 reference 구현; runtime_checkable `isinstance` 통과), CH-20260503-008 (Task 5 build_gemini_messages — boundary split 헬퍼 재사용 (provider-agnostic 함수명이지만 본질은 BOUNDARY split)), CH-20260503-010 (PRD FR-7 — Anthropic provider 통합 요건), CH-20260503-011 (tech-design D7 — cache_control ephemeral marker 결정 + R-7 위험), CH-20260503-012 (구현계획서 — Task 6.5 신규 추가 cascade), CH-20260503-013 (Task 6 GeminiClient — sibling adapter, 동일 LLMClient Protocol 패턴 mirror)
+
+### [코드-수정] 2026-05-03 20:58 — Task 7: NFR invariant 확장 (test_init_purity + test_no_domain_vocab)
+
+- **id**: CH-20260503-015
+- **이유**: NFR-1 (도메인 중립성 — 베이스 코드에 도메인 어휘 0건) / NFR-2 (D-13 docstring-only `__init__.py`) / AC-8 / AC-9 의 invariant scope 를 Phase 1 의 `prompts/` 트리에서 Phase 2 신규 `llm/` 트리 (cache_policy.py / cache_metrics.py / client.py / messages.py / gemini.py / anthropic.py) 까지 확장. 신규 src 가 늘어났는데도 invariant scan 이 prompts/ 만 보면 도메인 어휘 회귀 + `__init__.py` 오염 회귀를 베이스 단위테스트가 잡지 못하는 hole 을 막는다. 부수적으로 Task 4 의 `LLMClient` Protocol docstring 에 "runtime_checkable 는 method 존재만 체크. 시그니처 정확성은 mypy/ty 정적 체크에 위임." 1줄 보강 — Task 6 GeminiClient / Task 6.5 AnthropicClient 두 reference 구현이 등장한 시점에 실제 Protocol 적합성 검증 책임 분담을 명문화.
+- **무엇이**: tests/test_init_purity.py (TARGET_INITS 에 `best_agent_base/llm/__init__.py` 항목 추가), tests/test_no_domain_vocab.py (모듈 docstring 갱신 + `LLM_DIR` 상수 + `_scan(term, scan_dir)` 시그니처 변경 + `test_llm_module_free_of_domain_vocab` 신규 + `test_llm_dir_exists` 신규 + 기존 `test_prompts_module_free_of_domain_vocab` 의 hits 출력 베이스를 PROMPTS_DIR.parent.parent → PROJECT_ROOT 로 정렬), best_agent_base/llm/client.py (LLMClient docstring 1줄 보강). 본 plan 의 Task 7 Step 1~5 체크박스도 [x] 마크.
+- **영향범위**: `tests/test_init_purity.py` — TARGET_INITS 튜플 1 항목 추가만, 검증 함수 본체는 무변경. `tests/test_no_domain_vocab.py` — `_scan` 의 시그니처에 `scan_dir` 추가됐지만 함수 외부에서 호출되지 않는 헬퍼라 Phase 1 호환성 영향 0. parametrize 케이스 수: 9 forbidden_term × 1 dir → 9 forbidden_term × 2 dir = 18 케이스 + 디렉토리 존재 검증 2 = 총 20 (기존 10 → 20). 기존 `test_prompts_dir_exists` 동작 무변경. `best_agent_base/llm/client.py` — Protocol class docstring 만 1줄 추가. runtime semantics 무변경 (docstring 확장은 Protocol 구조에 무영향). 외부 호출자 / 다른 src 무영향. Phase 2 신규 코드 (anthropic.py / cache_metrics.py / cache_policy.py / client.py / gemini.py / messages.py / models.py / profiles.py) 에 forbidden vocab 0건 확인 → 신규 invariant 가 GREEN 상태로 정착. 회귀 = 전체 111 → 113 passed (test_init_purity +1, test_no_domain_vocab +9 forbidden term × llm + 1 dir_exists = +10; 단 net +2 reported 는 23 → 23 의 invariant block 만 보면 +13, 전체 회귀 차이는 단일 commit 단위 측정).
+- **위험 카테고리**: side-effect — 두 invariant test 가 베이스 단위테스트의 안전망 역할이라, 이후 Phase 3+ 에서 신규 `best_agent_base/<sub>/` 트리를 추가하는 implementer 는 동일 패턴으로 SCAN_DIRS / TARGET_INITS 에 항목을 1줄 추가해야 함. 추가 안 하면 새 트리에 도메인 어휘 / `__init__.py` 오염이 들어와도 베이스 단위테스트가 GREEN 으로 남는 silent gap 발생. mitigation = 본 변경에서 SCAN_DIRS 튜플 + TARGET_INITS 튜플로 명시화하여 신규 항목 추가 위치를 1점에 single-point 화 + 본 변경이력 entry 가 Phase 3+ implementer 가 검색 가능한 가이드 역할.
+- **세부 변경 (3건)**:
+  - `tests/test_init_purity.py` — TARGET_INITS 튜플에 `PROJECT_ROOT / "best_agent_base" / "llm" / "__init__.py"` 1 항목 추가. 검증 함수 본체 무변경.
+  - `tests/test_no_domain_vocab.py` — 모듈 docstring "prompts 모듈" → "prompts/llm 모듈". `PROJECT_ROOT` 상수 분리, `LLM_DIR` 상수 신규, `SCAN_DIRS = (PROMPTS_DIR, LLM_DIR)` 튜플 신규. `_scan(term)` → `_scan(term, scan_dir)`. 기존 `test_prompts_module_free_of_domain_vocab` 의 hits 출력 base 를 PROJECT_ROOT 로 정렬. 신규 `test_llm_module_free_of_domain_vocab` 9 forbidden term parametrize. 신규 `test_llm_dir_exists` smoke.
+  - `best_agent_base/llm/client.py` — `class LLMClient(Protocol)` docstring 에 "runtime_checkable 는 method 존재만 체크. 시그니처 정확성은 mypy/ty 정적 체크에 위임." 1줄 추가 (CH-20260503-007 보강).
+- **변경 전 코드** (per file)
+  ```python
+  # file: tests/test_init_purity.py (변경된 TARGET_INITS 만)
+  TARGET_INITS: tuple[Path, ...] = (
+      PROJECT_ROOT / "best_agent_base" / "__init__.py",
+      PROJECT_ROOT / "best_agent_base" / "prompts" / "__init__.py",
+  )
+  ```
+  ```python
+  # file: tests/test_no_domain_vocab.py (변경된 부분 발췌)
+  PROMPTS_DIR = Path(__file__).parent.parent / "best_agent_base" / "prompts"
+
+  def _scan(term: str) -> list[Path]:
+      pattern = re.compile(rf"\b{re.escape(term)}\b", re.IGNORECASE)
+      hits: list[Path] = []
+      for py in PROMPTS_DIR.rglob("*.py"):
+          text = py.read_text(encoding="utf-8")
+          if pattern.search(text):
+              hits.append(py)
+      return hits
+
+  @pytest.mark.parametrize("term", FORBIDDEN_TERMS)
+  def test_prompts_module_free_of_domain_vocab(term):
+      hits = _scan(term)
+      assert not hits, (
+          f"forbidden domain term {term!r} found in base prompts module: "
+          f"{[str(h.relative_to(PROMPTS_DIR.parent.parent)) for h in hits]}"
+      )
+
+  def test_prompts_dir_exists():
+      assert PROMPTS_DIR.is_dir()
+  ```
+  ```python
+  # file: best_agent_base/llm/client.py (변경된 Protocol class docstring 만)
+  @runtime_checkable
+  class LLMClient(Protocol):
+      """Provider-agnostic LLM 호출 슬롯 (B-thin)."""
+  ```
+- **변경 후 코드** (per file)
+  ```python
+  # file: tests/test_init_purity.py (변경된 TARGET_INITS 만)
+  TARGET_INITS: tuple[Path, ...] = (
+      PROJECT_ROOT / "best_agent_base" / "__init__.py",
+      PROJECT_ROOT / "best_agent_base" / "prompts" / "__init__.py",
+      PROJECT_ROOT / "best_agent_base" / "llm" / "__init__.py",
+  )
+  ```
+  ```python
+  # file: tests/test_no_domain_vocab.py (변경된 부분 발췌)
+  PROJECT_ROOT = Path(__file__).parent.parent
+  PROMPTS_DIR = PROJECT_ROOT / "best_agent_base" / "prompts"
+  LLM_DIR = PROJECT_ROOT / "best_agent_base" / "llm"
+
+  SCAN_DIRS: tuple[Path, ...] = (PROMPTS_DIR, LLM_DIR)
+
+  def _scan(term: str, scan_dir: Path) -> list[Path]:
+      pattern = re.compile(rf"\b{re.escape(term)}\b", re.IGNORECASE)
+      hits: list[Path] = []
+      for py in scan_dir.rglob("*.py"):
+          text = py.read_text(encoding="utf-8")
+          if pattern.search(text):
+              hits.append(py)
+      return hits
+
+  @pytest.mark.parametrize("term", FORBIDDEN_TERMS)
+  def test_prompts_module_free_of_domain_vocab(term):
+      hits = _scan(term, PROMPTS_DIR)
+      assert not hits, (
+          f"forbidden domain term {term!r} found in base prompts module: "
+          f"{[str(h.relative_to(PROJECT_ROOT)) for h in hits]}"
+      )
+
+  @pytest.mark.parametrize("term", FORBIDDEN_TERMS)
+  def test_llm_module_free_of_domain_vocab(term):
+      hits = _scan(term, LLM_DIR)
+      assert not hits, (
+          f"forbidden domain term {term!r} found in base llm module: "
+          f"{[str(h.relative_to(PROJECT_ROOT)) for h in hits]}"
+      )
+
+  def test_prompts_dir_exists():
+      assert PROMPTS_DIR.is_dir()
+
+  def test_llm_dir_exists():
+      assert LLM_DIR.is_dir()
+  ```
+  ```python
+  # file: best_agent_base/llm/client.py (변경된 Protocol class docstring 만)
+  @runtime_checkable
+  class LLMClient(Protocol):
+      """Provider-agnostic LLM 호출 슬롯 (B-thin).
+
+      runtime_checkable 는 method 존재만 체크. 시그니처 정확성은 mypy/ty 정적 체크에 위임.
+      """
+  ```
+- **검증**: `uv run pytest tests/test_init_purity.py tests/test_no_domain_vocab.py -v` → 23 passed (init_purity 3건 + no_domain_vocab 20건 = 9 prompts term + 9 llm term + 2 dir_exists). `uv run pytest -v` → 111 passed (전체 무회귀; Phase 2 신규 src 6 모듈 모두 forbidden vocab 0건 GREEN). `uv run ruff check best_agent_base/ tests/` → All checks passed (notebooks 트리의 기존 미해결 lint 이슈는 Task 7 scope 외).
+- **연관 항목**: CH-20260503-003 (구현계획서 — Task 7 정의), CH-20260503-007 (Task 4 LLMClient Protocol — runtime_checkable docstring 보강 본 task 에서 동시 처리), CH-20260503-013 (Task 6 GeminiClient — `best_agent_base/llm/gemini.py` 가 신규 vocab scan 대상에 포함), CH-20260503-014 (Task 6.5 AnthropicClient — `best_agent_base/llm/anthropic.py` 가 신규 vocab scan 대상에 포함)

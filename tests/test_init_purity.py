@@ -14,6 +14,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 TARGET_INITS: tuple[Path, ...] = (
     PROJECT_ROOT / "best_agent_base" / "__init__.py",
     PROJECT_ROOT / "best_agent_base" / "prompts" / "__init__.py",
+    PROJECT_ROOT / "best_agent_base" / "llm" / "__init__.py",
 )
 
 

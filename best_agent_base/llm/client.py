@@ -31,7 +31,10 @@ class LLMResponse(BaseModel):
 
 @runtime_checkable
 class LLMClient(Protocol):
-    """Provider-agnostic LLM 호출 슬롯 (B-thin)."""
+    """Provider-agnostic LLM 호출 슬롯 (B-thin).
+
+    runtime_checkable 는 method 존재만 체크. 시그니처 정확성은 mypy/ty 정적 체크에 위임.
+    """
 
     async def generate(
         self,
