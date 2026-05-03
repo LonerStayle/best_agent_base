@@ -2408,3 +2408,67 @@ tech-design §6 R-1..6 매핑 — 각 위험을 구현 시 코드 한 줄 한 �
   ```
 - **검증**: `uv run ruff check main.py` → All checks passed. `uv run ruff format --check main.py` → 1 file already formatted. `uv run python -c "import main; print(main.main)"` → `<function main at 0x...>` (이전 깨진 import 복구 확인). `uv run pytest -v` → 111 passed (Task 7 직후 baseline 과 동일, 무회귀).
 - **연관 항목**: CH-20260503-003 (구현계획서 — Task 8 정의), CH-20260503-004 (Task 1 deps 교체 — `langchain*` / `langgraph` 제거가 본 마이그레이션의 직접 트리거 = R-3 발동 시점), CH-20260503-013 (Task 6 GeminiClient — `get_gemini()` 팩토리 제거 + `GeminiClient` 클래스 신설로 본 main.py 가 사용할 신규 public API 제공)
+
+### [2026-05-03 21:30] [코드-수정] (task: Task 9 — 통합 conftest + 최종 GREEN/clean 검증)
+- **이유**: 그루밍 노트 #3 처리. Phase 1 의 `restore_registry` snapshot/restore 패턴이 4 prompts 테스트 파일 (`test_prompts_registry.py`, `test_prompts_render.py`, `test_prompts_static_stability.py`, `test_prompts_cache_slot.py`) 에 중복으로 박혀 있어 Phase 2 진입 시점에 `tests/conftest.py` 로 DRY. autouse fixture 로 격리. 동시에 Phase 2 신규 3 테스트 파일 (`test_anthropic_adapter.py`, `test_gemini_adapter.py`, `test_llm_client_protocol.py`) 의 `ruff format` 잔존 분량 정리. AC-10 (전체 GREEN + ruff clean) 최종 검증.
+- **id**: CH-20260503-017
+- **무엇이**: `tests/conftest.py` 신규 (15 lines) — autouse `restore_registry` fixture (Phase 1 패턴 그대로). 4 prompts 테스트 파일에서 중복 snapshot/restore 코드 제거: 2 파일 (registry, render) 의 module-level fixture 정의 삭제 + 2 파일 (cache_slot, static_stability) 의 함수-내 try/finally 블록 평탄화. Phase 2 3 테스트 파일은 `uv run ruff format` 적용 (인덴트/줄바꿈 정합).
+- **영향범위**: `tests/conftest.py` 가 autouse 이므로 **모든** 111 테스트에 fixture wrap 영향. 단 fixture 로직은 Phase 1 의 4 파일에 이미 중복 존재했던 것이므로 의미적 회귀 없음 — 단지 적용 범위가 4 파일 → 17 파일 (전체 tests/) 로 확장. registry 를 직접 mutate 하지 않는 테스트 (Phase 2 LLM 테스트 등) 에는 무영향 (snapshot=restore 가 동일하므로). 충돌 시나리오 점검: Phase 1 잔존 함수-내 try/finally 가 outer autouse fixture 보다 inner 로 동작 (try/finally 가 yield 보다 먼저 cleanup) — 안전. 본 task 에서 함수-내 패턴은 모두 제거하여 충돌 가능성 자체 소멸. ruff format 은 의미 변경 없음 (whitespace only).
+- **위험 카테고리**: side-effect (autouse fixture — 모든 테스트에 자동 적용)
+- **세부 변경 (5건)**:
+  - `tests/conftest.py` — 신규 생성. autouse `restore_registry` fixture (snapshot dict → yield → clear/update restore).
+  - `tests/test_prompts_registry.py` — module-level `@pytest.fixture(autouse=True) def restore_registry(): ...` 7 lines 삭제 + 주석 1 line 추가.
+  - `tests/test_prompts_render.py` — 동일 패턴 7 lines 삭제 + 주석 1 line 추가.
+  - `tests/test_prompts_cache_slot.py` — `test_get_static_hash_changes_when_static_section_replaced` 의 함수-내 `snapshot = ...` / `try` / `finally` 블록 평탄화 (5 lines 제거, 들여쓰기 1 단계 unindent).
+  - `tests/test_prompts_static_stability.py` — `test_full_render_static_part_unchanged_when_only_dynamic_changes` 의 함수-내 try/finally 블록 평탄화 (5 lines 제거, 들여쓰기 1 단계 unindent).
+- **변경 전 코드** (대표 1건; 4 파일 모두 동형 패턴)
+  ```python
+  # file: tests/test_prompts_render.py (변경 전 — autouse fixture 직접 정의)
+  import pytest
+
+  from best_agent_base.prompts.boundary import SYSTEM_PROMPT_DYNAMIC_BOUNDARY
+  from best_agent_base.prompts.registry import registry
+  from best_agent_base.prompts.render import RenderContext, render
+
+
+  @pytest.fixture(autouse=True)
+  def restore_registry():
+      snapshot = dict(registry._sections)  # noqa: SLF001
+      yield
+      registry._sections.clear()  # noqa: SLF001
+      registry._sections.update(snapshot)  # noqa: SLF001
+  ```
+- **변경 후 코드** (per file)
+  ```python
+  # file: tests/conftest.py (신규)
+  """Pytest 공통 fixtures — registry / metrics 격리 (Phase 1+2 패턴)."""
+
+  from __future__ import annotations
+
+  import pytest
+
+  from best_agent_base.prompts.registry import registry
+
+
+  @pytest.fixture(autouse=True)
+  def restore_registry():
+      """Phase 1 SectionRegistry snapshot/restore — 4 테스트 파일 중복 DRY."""
+      snapshot = dict(registry._sections)  # noqa: SLF001 — test fixture 한정
+      try:
+          yield
+      finally:
+          registry._sections.clear()  # noqa: SLF001
+          registry._sections.update(snapshot)  # noqa: SLF001
+  ```
+  ```python
+  # file: tests/test_prompts_render.py (변경 후 — fixture 정의 삭제)
+  import pytest
+
+  from best_agent_base.prompts.boundary import SYSTEM_PROMPT_DYNAMIC_BOUNDARY
+  from best_agent_base.prompts.registry import registry
+  from best_agent_base.prompts.render import RenderContext, render
+
+  # registry 격리는 conftest.py 의 autouse `restore_registry` fixture 가 처리.
+  ```
+- **검증**: `uv run pytest -v 2>&1 | tail -5` → `111 passed in 0.62s` (무회귀 — Task 8 baseline 과 동일). `uv run ruff check . --exclude notebooks/` → `All checks passed!` (Phase 2 신규 코드 lint clean). `uv run ruff format --check .` → `46 files already formatted` + `notebooks/phase-1-prompts-demo.ipynb` 1건 — 본건은 Phase 1 carry-over (Task 6 reviewer 노트 + Task 7 검증 노트에 동일 주석). AC 매트릭스 self-check (12개 AC 중 12개 GREEN — AC-1~AC-9 카테고리별 cherry-pick 실행 확인 + AC-10 전체 PASS + AC-11/AC-12 Anthropic 어댑터 GREEN).
+- **연관 항목**: CH-20260503-003 (구현계획서 — Task 9 정의), CH-20260503-013 (Task 6 GeminiClient — `tests/test_gemini_adapter.py` format 정리 본 task 에서 동시 처리), CH-20260503-014 (Task 6.5 AnthropicClient — `tests/test_anthropic_adapter.py` format 정리 본 task 에서 동시 처리), CH-20260503-007 (Task 4 LLMClient Protocol — `tests/test_llm_client_protocol.py` format 정리 본 task 에서 동시 처리), Phase 1 implementation plan `docs/features/2026-05-03-phase-1-prompts/phase-1-prompts-implementation-plan.md` (snapshot/restore 패턴 원본 정의 — cross-feature reference)

@@ -21,21 +21,19 @@ def test_get_static_hash_deterministic_for_same_ctx():
 
 
 def test_get_static_hash_changes_when_static_section_replaced():
-    """정적 섹션을 다른 콘텐츠로 교체하면 hash 변경."""
-    snapshot = dict(registry._sections)  # noqa: SLF001
-    try:
-        h_before = get_static_hash(RenderContext())
+    """정적 섹션을 다른 콘텐츠로 교체하면 hash 변경.
 
-        class CustomIntro:
-            name = "Intro"
-            static = True
+    registry 격리는 conftest.py 의 autouse `restore_registry` fixture 가 처리.
+    """
+    h_before = get_static_hash(RenderContext())
 
-            def render(self, ctx):  # noqa: ARG002
-                return "completely different intro text"
+    class CustomIntro:
+        name = "Intro"
+        static = True
 
-        registry.register("Intro", CustomIntro())
-        h_after = get_static_hash(RenderContext())
-        assert h_before != h_after
-    finally:
-        registry._sections.clear()  # noqa: SLF001
-        registry._sections.update(snapshot)  # noqa: SLF001
+        def render(self, ctx):  # noqa: ARG002
+            return "completely different intro text"
+
+    registry.register("Intro", CustomIntro())
+    h_after = get_static_hash(RenderContext())
+    assert h_before != h_after

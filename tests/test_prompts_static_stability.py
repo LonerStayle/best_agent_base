@@ -22,24 +22,22 @@ def test_static_hash_is_stable_over_n_calls():
 
 
 def test_full_render_static_part_unchanged_when_only_dynamic_changes():
-    """동적 섹션이 추가/변경되어도 정적 hash 는 영향 받지 않음."""
-    snapshot = dict(registry._sections)  # noqa: SLF001
-    try:
-        ctx = RenderContext()
-        h_before = get_static_hash(ctx)
+    """동적 섹션이 추가/변경되어도 정적 hash 는 영향 받지 않음.
 
-        class DynamicTimestamp:
-            name = "DynamicTimestamp"
-            static = False
+    registry 격리는 conftest.py 의 autouse `restore_registry` fixture 가 처리.
+    """
+    ctx = RenderContext()
+    h_before = get_static_hash(ctx)
 
-            def render(self, ctx):  # noqa: ARG002
-                import time
+    class DynamicTimestamp:
+        name = "DynamicTimestamp"
+        static = False
 
-                return f"now: {time.time()}"
+        def render(self, ctx):  # noqa: ARG002
+            import time
 
-        registry.register("DynamicTimestamp", DynamicTimestamp())
-        h_after = get_static_hash(ctx)
-        assert h_before == h_after, "static hash must NOT depend on dynamic sections"
-    finally:
-        registry._sections.clear()  # noqa: SLF001
-        registry._sections.update(snapshot)  # noqa: SLF001
+            return f"now: {time.time()}"
+
+    registry.register("DynamicTimestamp", DynamicTimestamp())
+    h_after = get_static_hash(ctx)
+    assert h_before == h_after, "static hash must NOT depend on dynamic sections"

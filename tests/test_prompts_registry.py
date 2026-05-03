@@ -9,14 +9,7 @@ from best_agent_base.prompts.registry import SectionRegistry, registry
 from best_agent_base.prompts.render import RenderContext
 from best_agent_base.prompts.sections import BASE_SECTIONS, Intro  # noqa: F401
 
-
-@pytest.fixture(autouse=True)
-def restore_registry():
-    """각 테스트 격리 — 끝나면 registry 원상 복구."""
-    snapshot = dict(registry._sections)  # noqa: SLF001
-    yield
-    registry._sections.clear()  # noqa: SLF001
-    registry._sections.update(snapshot)  # noqa: SLF001
+# registry 격리는 conftest.py 의 autouse `restore_registry` fixture 가 처리.
 
 
 def test_registry_is_singleton_instance():

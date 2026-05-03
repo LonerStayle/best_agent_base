@@ -27,9 +27,7 @@ def _make_client(monkeypatch: pytest.MonkeyPatch) -> tuple[AnthropicClient, Magi
         )
     )
     monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-key")
-    monkeypatch.setattr(
-        "best_agent_base.llm.anthropic._build_anthropic_client", lambda: fake_sdk
-    )
+    monkeypatch.setattr("best_agent_base.llm.anthropic._build_anthropic_client", lambda: fake_sdk)
     return AnthropicClient(model="claude-sonnet-4-5-20250929"), fake_sdk
 
 

@@ -27,9 +27,7 @@ def _make_client(monkeypatch: pytest.MonkeyPatch) -> tuple[GeminiClient, MagicMo
     gen_result = MagicMock(text="hi", usage_metadata=usage_meta)
     fake_sdk.aio.models.generate_content = AsyncMock(return_value=gen_result)
     monkeypatch.setenv("GOOGLE_API_KEY", "fake-key")
-    monkeypatch.setattr(
-        "best_agent_base.llm.gemini._build_genai_client", lambda: fake_sdk
-    )
+    monkeypatch.setattr("best_agent_base.llm.gemini._build_genai_client", lambda: fake_sdk)
     client = GeminiClient(profile=DEFAULT_CHAT)
     return client, fake_sdk
 

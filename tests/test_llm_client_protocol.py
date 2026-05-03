@@ -12,6 +12,7 @@ def test_token_usage_frozen():
     assert u.cached_tokens == 0
     import pytest
     from pydantic import ValidationError
+
     with pytest.raises(ValidationError):
         u.input_tokens = 99  # type: ignore[misc]
 
