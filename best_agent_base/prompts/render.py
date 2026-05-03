@@ -20,7 +20,11 @@ class RenderContext(BaseModel):
 
 
 def _render_static(ctx: RenderContext) -> str:
-    """정적 7섹션 (registry 기준) 을 순서대로 렌더링."""
+    """정적 7섹션 (registry 기준) 을 순서대로 렌더링.
+
+    도메인이 베이스 섹션을 `static=False` 로 override 하면 본 루프는 건너뛰고
+    `_render_dynamic` 가 그 섹션을 잡아 BOUNDARY 뒤로 옮긴다 (정적→동적 강등).
+    """
     parts: list[str] = []
     for base_section in BASE_SECTIONS:
         section = registry.get(base_section.name)
@@ -37,15 +41,21 @@ def _render_static(ctx: RenderContext) -> str:
 
 
 def _render_dynamic(ctx: RenderContext) -> str:
-    """동적 섹션 (Phase 1: 베이스에는 없음). 도메인이 static=False section 등록 시 합성."""
+    """동적 섹션을 합성. 베이스에는 없음 (Phase 1).
+
+    도메인이 `static=False` section 을 register 한 경우 또는 베이스 섹션을
+    `static=False` 로 override 한 경우 모두 본 루프가 잡는다. registry 의
+    `all_sections()` 는 등록 순서로 반환 (Python 3.7+ dict insertion order).
+    """
     parts: list[str] = []
-    for name, section in registry._sections.items():  # noqa: SLF001
+    for section in registry.all_sections():
         if section.static:
             continue
         text = section.render(ctx)
         if SYSTEM_PROMPT_DYNAMIC_BOUNDARY in text:
             raise ValueError(
-                f"section {name!r} render output contains the boundary marker."
+                f"section {section.name!r} render output contains the boundary marker "
+                f"({SYSTEM_PROMPT_DYNAMIC_BOUNDARY!r}); domain content must not include it."
             )
         parts.append(text)
     return "\n\n".join(parts)

@@ -7,6 +7,8 @@ R-1 (race): Phase 1 은 register 1회 → read-many 가정. Phase 14 멀티-요�
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from best_agent_base.prompts.sections import BASE_SECTIONS, PromptSection
 
 
@@ -23,6 +25,10 @@ class SectionRegistry:
     def get(self, name: str) -> PromptSection:
         """이름으로 섹션 조회. 미등록 시 KeyError."""
         return self._sections[name]
+
+    def all_sections(self) -> Iterable[PromptSection]:
+        """등록된 모든 섹션 (등록 순서). render() 의 동적 섹션 순회용."""
+        return self._sections.values()
 
 
 # 모듈-레벨 싱글톤 + 7 베이스 자동 등록.
