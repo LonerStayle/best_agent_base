@@ -281,9 +281,13 @@ CC 분석 문서에서 반복적으로 확인된 5가지 핵심 컨셉. 모든 �
 
 ---
 
-## 🧊 Phase 2 — LLM 클라이언트 통합 (캐싱 흡수)
+## 🧊 Phase 2 — LLM 클라이언트 통합 (캐싱 흡수)  ✅ 완료 (main `21b27f5` 머지, 111/111 tests)
 
-> **목적**: 모델 호출 어댑터를 베이스화. Provider 메커니즘(Gemini `CachedContent` / Anthropic `cache_control`) 차이를 **호출 레이어가 생기는 이 시점에** 정확히 모델링. Phase 1 의 정적/동적 분리 슬롯 위에 실제 호출 레이어를 얹는다.
+> **산출물**: `docs/features/2026-05-03-phase-2-llm-client/` (PRD + tech-design + impl-plan, CH-001..017) / `docs/interfaces/phase-2-llm-client.md` (공식 인터페이스 가이드) / `notebooks/phase-2-llm-client-demo.ipynb` (데모, 산출물 룰 4부 골격)
+> **결과**: 9 task + Anthropic FR-7 cascade 완료, 41 신규 tests (70 → 111), final code review APPROVED, ruff clean (Phase 2 scope)
+> **사용자 결정 (CH-010/011/012)**: 본래 OOS-1 ("Anthropic 어댑터 본 구현") 였던 항목을 본 Phase 범위에 포함. 이유 = provider 추상화 검증의 진정한 완성은 2개 어댑터 동시 구현으로 가능 (Gemini `CachedContent` ↔ Anthropic `cache_control` ephemeral marker 두 메커니즘이 동일 `LLMClient` + `CachePolicy` 흐름으로 흡수 실증).
+
+> **목적** (원본): 모델 호출 어댑터를 베이스화. Provider 메커니즘(Gemini `CachedContent` / Anthropic `cache_control`) 차이를 **호출 레이어가 생기는 이 시점에** 정확히 모델링. Phase 1 의 정적/동적 분리 슬롯 위에 실제 호출 레이어를 얹는다.
 >
 > **결정 (2026-05-03)**: 본래 "Phase 2 — KV 캐싱(프롬프트 캐싱) 적용" 으로 분리돼 있던 항목을 **LLM 클라이언트 Phase 에 흡수**. 이유:
 > - **D-2 "안 만들기" 위반 회피** — LLM 호출 레이어가 없는 시점에 "캐시 측정·정책 추상" 만 따로 만드는 건 호출자 없는 추상화. Phase 1 의 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 마커 + `get_static_hash(ctx)` 가 이미 캐시 친화 슬롯 그 자체.
@@ -298,17 +302,17 @@ CC 분석 문서에서 반복적으로 확인된 5가지 핵심 컨셉. 모든 �
 
 ### 작업 항목
 
-- [ ] `LLMClient` Protocol — `async generate(messages, tools, cache_policy)` 시그니처 (provider-agnostic)
-- [ ] Gemini 어댑터 참조 구현 — `google.genai` SDK 래핑 + `generate_content_async`
-- [ ] **캐시 통합 (Gemini)** — `CachedContent` 생성/재사용. Phase 1 boundary 마커 위(static)만 캐시 대상으로
-- [ ] Anthropic 어댑터 슬롯 — Protocol 적합 + 미구현 (확장 포인트만, 본체는 후속 Phase 또는 도메인 프로젝트)
-- [ ] **캐시 메트릭 슬롯** — 적중·미적중 카운터, `get_static_hash` 기반 키 충돌 검증, 로깅 훅 (`PreModelCall`/`PostModelCall` 자리는 Phase 11 에서 흡수)
-- [ ] 메시지 빌더 — Phase 1 `render(ctx)` 출력 → provider-specific 메시지 구조 변환 (BOUNDARY 위/아래 분리, 도구 카탈로그 정적/동적 분리는 Phase 6 에서 본격)
-- [ ] 통합 테스트:
-  - 같은 ctx 두 번 호출 → 두 번째 캐시 적중 확인 (SDK mock 또는 record/replay)
-  - BOUNDARY 위/아래 토큰 분포 검증 (정적 부 침범 감지)
-- [ ] **공식 인터페이스 가이드** `docs/interfaces/phase-2-llm-client.md` (산출물 룰 적용 — 사용예시 위, Public API 아래, Phase 번호 X)
-- [ ] 데모 노트북 `notebooks/phase-2-llm-client-demo.ipynb` (선택)
+- [x] `LLMClient` Protocol (B-thin, runtime_checkable) — `async generate(ctx, *, cache_policy=None) → LLMResponse` + `count_tokens` (`best_agent_base/llm/client.py`)
+- [x] Gemini 어댑터 참조 구현 — `google.genai` 직접 사용 (LangChain 제거), `GeminiClient` 클래스 (`best_agent_base/llm/gemini.py` 재작성)
+- [x] **캐시 통합 (Gemini)** — `CachedContent` 자동 생성/재사용, key=`get_static_hash(ctx)`, `asyncio.Lock` per static_hash (R-1), D6 fallback (캐시 실패 시 None → 호출 우회)
+- [x] **Anthropic 어댑터 본 구현** — `AnthropicClient` (`best_agent_base/llm/anthropic.py`), system 메시지 마지막 text block 에 `cache_control: {"type": "ephemeral"}` marker (D7), CH-010 cascade
+- [x] **캐시 메트릭 슬롯** — `CacheEvent(StrEnum)` + `CacheObserver` + `CacheMetrics` (`best_agent_base/llm/cache_metrics.py`), HASH_CHANGE 메트릭 계약 명문화 (causal annotation)
+- [x] 메시지 빌더 — `build_gemini_messages(ctx)` (`best_agent_base/llm/messages.py`) — provider-agnostic boundary split (Anthropic 도 재사용)
+- [x] `CachePolicy` frozen 모델 — enabled / ttl_seconds / force_invalidate (`best_agent_base/llm/cache_policy.py`)
+- [x] 통합 테스트 — 동일 ctx 두 번 호출 → 두 번째 cache hit (mock SDK), boundary 위/아래 검증, race 시나리오 (5 동시 호출 → caches.create 1회), cache_control marker 위치 회귀
+- [x] `tests/conftest.py` autouse `restore_registry` fixture (그루밍 노트 #3 처리)
+- [x] **공식 인터페이스 가이드** `docs/interfaces/phase-2-llm-client.md` (산출물 룰 8섹션)
+- [x] **데모 노트북** `notebooks/phase-2-llm-client-demo.ipynb` (산출물 룰 4부 골격)
 
 ---
 
