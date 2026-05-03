@@ -124,14 +124,20 @@
 
 > **다음 세션이 사용자에게 "Phase 2 가자" 신호 받으면 아래 흐름:**
 
-### Phase 2 — KV 캐싱 (프롬프트 캐싱) 적용
+### Phase 2 — LLM 클라이언트 통합 (캐싱 흡수)
 
-> [`TODO.md` §🧊 Phase 2](./TODO.md#-phase-2--kv-캐싱프롬프트-캐싱-적용) 참조
+> [`TODO.md` §🧊 Phase 2](./TODO.md#-phase-2--llm-클라이언트-통합-캐싱-흡수) 참조
 
-**핵심**: Phase 1 의 `get_static_hash(ctx)` 슬롯 위에 실제 KV 캐시 측정·로깅 인프라 얹기. Anthropic/Gemini API 호출 시 정적 부 (BOUNDARY 앞) 를 cache 마커와 함께 송신, 적중률 메트릭으로 노출.
+**결정 (2026-05-03)**: 본래 "Phase 2 — KV 캐싱(프롬프트 캐싱)" 으로 분리됐던 항목은 LLM 클라이언트 Phase 에 흡수. 이유 3가지:
+1. **D-2 "안 만들기"** — LLM 호출 레이어 없는 시점에 캐시 측정 인프라만 만드는 건 호출자 없는 추상화. Phase 1 boundary 마커 + `get_static_hash` 가 이미 캐시 친화 슬롯.
+2. **Provider 메커니즘 차이** — Gemini(`CachedContent` 객체 + TTL) ↔ Anthropic(`cache_control` 마커) 를 호출 레이어 없이 미리 추상화하면 둘 다 어색하게 모델링될 위험. 실제 SDK 시그니처 보면서 한 번에 통합 설계.
+3. **9 설계원칙 #1 (정적/동적 분리)** 가 이미 횡단 제약. 별도 Phase 룰 추가 불필요.
+
+**핵심**: Phase 0 의 `best_agent_base/llm/` 1차 골격(`models.py`/`profiles.py`/`gemini.py`) 위에 `LLMClient` Protocol + Gemini 어댑터 본체 + Gemini `CachedContent` 통합 + 캐시 메트릭 슬롯 + Phase 1 `render(ctx)` → provider 메시지 변환. Anthropic 어댑터는 Protocol 적합 슬롯만.
 
 **참조 (필수)**:
-- `prompt-engineering-techniques.md` — 캐시 분리 마커 메커니즘
+- Phase 0 의 `best_agent_base/llm/` 1차 골격
+- `prompt-engineering-techniques.md` — 정적/동적 경계 마커 메커니즘
 - `에이전트-성능-결정요인-총정리.md` — 캐시 적중률과 비용·지연 관계
 - CC `src/services/api.ts:splitSysPromptPrefix` 등 — 캐시 송신 패턴 (md + src 둘 다)
 

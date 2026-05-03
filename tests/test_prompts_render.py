@@ -8,13 +8,7 @@ from best_agent_base.prompts.boundary import SYSTEM_PROMPT_DYNAMIC_BOUNDARY
 from best_agent_base.prompts.registry import registry
 from best_agent_base.prompts.render import RenderContext, render
 
-
-@pytest.fixture(autouse=True)
-def restore_registry():
-    snapshot = dict(registry._sections)  # noqa: SLF001
-    yield
-    registry._sections.clear()  # noqa: SLF001
-    registry._sections.update(snapshot)  # noqa: SLF001
+# registry 격리는 conftest.py 의 autouse `restore_registry` fixture 가 처리.
 
 
 def test_render_returns_str():
