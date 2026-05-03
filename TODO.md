@@ -116,6 +116,30 @@ CC 분석 문서에서 반복적으로 확인된 5가지 핵심 컨셉. 모든 �
 
 ---
 
+## 📖 산출물 룰 — 각 Phase 끝마다 **인터페이스 개발문서** 남기기
+
+> Phase 종료(finishing-a-development-branch) 직전, 베이스를 사용할 도메인 프로젝트가 **공식 라이브러리 docs (pydantic / fastapi 등) 처럼 참조** 할 수 있는 인터페이스 가이드를 반드시 산출한다. 14 Phase 누적 → 한 권의 공식 매뉴얼.
+
+**위치**: `docs/interfaces/phase-<N>-<slug>.md` (예: `docs/interfaces/phase-1-prompts.md`)
+
+**필수 섹션** (8개):
+1. **모듈 책임** — 한 줄. "이 모듈은 무엇을 하는가."
+2. **Public API** — import 가능 심볼 전체 (함수·클래스·상수 시그니처 + 1-2줄 설명). 코드 블록으로.
+3. **핵심 개념** — 도표/다이어그램 (ASCII art 또는 mermaid). 데이터 흐름·의존성·계약.
+4. **사용 예시** — 도메인 입장에서 가장 흔한 use case 1-3개. 복붙 가능한 완성 코드.
+5. **확장 포인트** — `register()` / override / Protocol 시그니처. "이렇게 갈아끼우세요" 가이드.
+6. **위험·주의사항** — `<slug>-tech-design.md §6` 의 R-N 중 도메인 사용자가 알아야 할 것 (race·breaking·perf·side-effect).
+7. **다음 Phase 연계** — 이 인터페이스가 Phase N+1, N+M 에서 어떻게 확장·소비되는지.
+8. **데모 노트북 / 참조 코드** — `notebooks/phase-<N>-*.ipynb` 또는 `examples/` 링크.
+
+**산출 시점**: 9 task 완료 + final code review APPROVED 시점, change-history `[코드-수정]` 직후, `finishing-a-development-branch` 진입 직전.
+
+**적용 범위**: Phase 1 부터 본격 적용. Phase 0 (이미 완료) 는 시간 날 때 backfill (`docs/interfaces/phase-0-skeleton.md` — Settings + 9 서브패키지 + Docker setup).
+
+**검증**: 다음 Phase 진입 시 직전 Phase 의 인터페이스 문서가 있는지 확인. 없으면 진입 전에 만들기.
+
+---
+
 ## 🏗️ Phase 0 — 프로젝트 골격 & 폴더 구조 설계  ✅ 완료 (tag `phase-0-skeleton-done`)
 
 > **목적**: 빈 껍데기 + 모듈 트리 + 의존 정리. 코드 본체는 다음 Phase부터.
