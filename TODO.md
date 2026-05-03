@@ -116,9 +116,11 @@ CC 분석 문서에서 반복적으로 확인된 5가지 핵심 컨셉. 모든 �
 
 ---
 
-## 📖 산출물 룰 — 각 Phase 끝마다 **인터페이스 개발문서** 남기기
+## 📖 산출물 룰 — 각 Phase 끝마다 **인터페이스 개발문서 + 데모 노트북** 두 산출물
 
-> Phase 종료(finishing-a-development-branch) 직전, 베이스를 사용할 도메인 프로젝트가 **공식 라이브러리 docs (pydantic / fastapi 등) 처럼 참조** 할 수 있는 인터페이스 가이드를 반드시 산출한다. 14 Phase 누적 → 한 권의 공식 매뉴얼.
+> Phase 종료(finishing-a-development-branch) 직전, 베이스를 사용할 도메인 프로젝트가 **공식 라이브러리 docs (pydantic / fastapi 등) 처럼 참조** 할 수 있는 (1) 인터페이스 가이드 + (2) 실행 가능한 데모 노트북 두 산출물을 반드시 같이 낸다. 14 Phase 누적 → 한 권의 공식 매뉴얼 + 한 묶음의 실습 노트북.
+
+**산출물 1: 인터페이스 가이드 (Markdown)**
 
 **위치**: `docs/interfaces/phase-<N>-<slug>.md` (예: `docs/interfaces/phase-1-prompts.md`)
 
@@ -139,9 +141,27 @@ CC 분석 문서에서 반복적으로 확인된 5가지 핵심 컨셉. 모든 �
 
 **산출 시점**: 9 task 완료 + final code review APPROVED 시점, change-history `[코드-수정]` 직후, `finishing-a-development-branch` 진입 직전.
 
-**적용 범위**: Phase 1 부터 본격 적용. Phase 0 (이미 완료) 는 시간 날 때 backfill (`docs/interfaces/phase-0-skeleton.md` — Settings + 9 서브패키지 + Docker setup).
+**산출물 2: 데모 노트북 (Jupyter)**
 
-**검증**: 다음 Phase 진입 시 직전 Phase 의 인터페이스 문서가 있는지 확인. 없으면 진입 전에 만들기.
+**위치**: `notebooks/phase-<N>-<slug>-demo.ipynb` (예: `notebooks/phase-1-prompts-demo.ipynb`, `notebooks/phase-2-llm-client-demo.ipynb`)
+
+**필수 셀 구조** (인터페이스 가이드 §사용 예시를 실행 가능한 형태로 + 학습 친화적 4부 골격):
+
+1. **Setup 셀** — `sys.path` patch (`uv` 가 정식 ipykernel 등록 전까지 임시) + import 한 묶음 + `.env` 로딩 안내
+2. **1부: 베이스 사용 흐름** — 인터페이스 가이드 §사용 예시 의 가장 기본 use case 1-2개를 마크다운 설명 + 실행 가능 셀로
+3. **2부: override / register 슬롯** — `register()` / Protocol 구현 / 도메인 어댑터 끼우기 패턴 (Open/Closed 시연)
+4. **3부: escape hatch / 동적부 / 위험 가드** — `dangerous_uncached` 같은 escape hatch + 동적 컴포넌트 주입 + R-N 가드 발동 시나리오 (예: ValueError 가 잘 잡히는지)
+5. **Cleanup 셀** — registry / metrics 등 격리 위해 snapshot/restore (단 conftest autouse fixture 와 충돌 안 나게)
+6. **다른 모듈 연계 + 실습 4개** — Phase 번호 사용 금지 (인터페이스 가이드와 동일 룰), 기능 명칭으로만. 실습 = 사용자가 빈 셀 채워가며 학습할 수 있는 4 문항 ("X 를 ... 로 바꿔보세요", "Y observer 등록해보세요" 등)
+
+**노트북 주의사항**:
+- 사용자가 직접 노트북 셀을 한국어로 수정·주석 추가하는 경우 있음 — 메인이 NotebookEdit 으로 셀 추가/대체할 때 사용자 직접 수정 보존. Write 로 전체 덮어쓰기 금지.
+- ipykernel 정식 등록 권장 (`uv add --dev jupyter ipykernel && uv run python -m ipykernel install --user --name best-agent-base`) — 단 deps 추가는 사용자 승인 필요. 임시는 setup 셀의 `sys.path` patch 로 충분.
+- 노트북 ruff 잔여는 `notebooks/` 트리 전용 그루밍 — Phase 작업 외 별도 commit 권장 (Phase 1 demo 의 ruff 9 errors 가 그 예).
+
+**적용 범위**: Phase 1 부터 본격 적용 (`notebooks/phase-1-prompts-demo.ipynb` 16 cells). Phase 0 (이미 완료) 는 시간 날 때 backfill (인터페이스 가이드 + 노트북 둘 다).
+
+**검증**: 다음 Phase 진입 시 직전 Phase 의 (1) 인터페이스 문서 + (2) 데모 노트북 둘 다 존재하는지 확인. 둘 중 하나라도 없으면 진입 전에 만들기.
 
 ---
 
@@ -261,15 +281,34 @@ CC 분석 문서에서 반복적으로 확인된 5가지 핵심 컨셉. 모든 �
 
 ---
 
-## 🧊 Phase 2 — KV 캐싱(프롬프트 캐싱) 적용
+## 🧊 Phase 2 — LLM 클라이언트 통합 (캐싱 흡수)
 
-> **목적**: 모델 호출 시 정적 블록을 캐시 마커와 함께 송신, 적중률을 메트릭으로 노출.
+> **목적**: 모델 호출 어댑터를 베이스화. Provider 메커니즘(Gemini `CachedContent` / Anthropic `cache_control`) 차이를 **호출 레이어가 생기는 이 시점에** 정확히 모델링. Phase 1 의 정적/동적 분리 슬롯 위에 실제 호출 레이어를 얹는다.
+>
+> **결정 (2026-05-03)**: 본래 "Phase 2 — KV 캐싱(프롬프트 캐싱) 적용" 으로 분리돼 있던 항목을 **LLM 클라이언트 Phase 에 흡수**. 이유:
+> - **D-2 "안 만들기" 위반 회피** — LLM 호출 레이어가 없는 시점에 "캐시 측정·정책 추상" 만 따로 만드는 건 호출자 없는 추상화. Phase 1 의 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 마커 + `get_static_hash(ctx)` 가 이미 캐시 친화 슬롯 그 자체.
+> - **Provider 메커니즘 차이** — Gemini(`CachedContent` 객체 + TTL + 최소 토큰 Flash 1024 / Pro 4096) ↔ Anthropic(`cache_control` 마커) 를 호출 레이어 없이 선추상화하면 **둘 다 어색하게 모델링될 위험**. 두 SDK 의 실제 시그니처를 보면서 한 번에 통합 설계가 정확함.
+> - **9 설계원칙 #1 (정적/동적 분리)** 이 이미 횡단 제약. "캐시 친화" 룰을 Phase 별 체크리스트로 따로 둘 필요 없음.
 
-- [ ] 모델별 캐시 컨트롤 추상 (`CachePolicy`) — Gemini 우선, 후일 Anthropic도 차용
-- [ ] 메시지 빌더 — `[정적 시스템 | DYNAMIC_BOUNDARY | 동적 시스템 | 대화]` 구조로 송신
-- [ ] 캐시 적중·미적중·재계산을 로그/메트릭으로
-- [ ] 도구 카탈로그(이름·description) 자체도 정적/동적 분리 (deferred 도구는 동적)
-- [ ] 통합 테스트: 같은 세션에서 두 번째 호출 시 정적 부분 비용↓ 확인
+> **참조 (필수)**:
+> - Phase 0 의 `best_agent_base/llm/` (Gemini 어댑터 1차 골격 — `models.py` / `profiles.py` / `gemini.py`)
+> - `prompt-engineering-techniques.md` — 정적/동적 경계 마커 메커니즘
+> - `에이전트-성능-결정요인-총정리.md` — 캐시 적중률과 비용·지연 관계
+> - CC `src/services/api.ts` (특히 `splitSysPromptPrefix` 등) — 캐시 송신 패턴 (md + src 둘 다)
+
+### 작업 항목
+
+- [ ] `LLMClient` Protocol — `async generate(messages, tools, cache_policy)` 시그니처 (provider-agnostic)
+- [ ] Gemini 어댑터 참조 구현 — `google.genai` SDK 래핑 + `generate_content_async`
+- [ ] **캐시 통합 (Gemini)** — `CachedContent` 생성/재사용. Phase 1 boundary 마커 위(static)만 캐시 대상으로
+- [ ] Anthropic 어댑터 슬롯 — Protocol 적합 + 미구현 (확장 포인트만, 본체는 후속 Phase 또는 도메인 프로젝트)
+- [ ] **캐시 메트릭 슬롯** — 적중·미적중 카운터, `get_static_hash` 기반 키 충돌 검증, 로깅 훅 (`PreModelCall`/`PostModelCall` 자리는 Phase 11 에서 흡수)
+- [ ] 메시지 빌더 — Phase 1 `render(ctx)` 출력 → provider-specific 메시지 구조 변환 (BOUNDARY 위/아래 분리, 도구 카탈로그 정적/동적 분리는 Phase 6 에서 본격)
+- [ ] 통합 테스트:
+  - 같은 ctx 두 번 호출 → 두 번째 캐시 적중 확인 (SDK mock 또는 record/replay)
+  - BOUNDARY 위/아래 토큰 분포 검증 (정적 부 침범 감지)
+- [ ] **공식 인터페이스 가이드** `docs/interfaces/phase-2-llm-client.md` (산출물 룰 적용 — 사용예시 위, Public API 아래, Phase 번호 X)
+- [ ] 데모 노트북 `notebooks/phase-2-llm-client-demo.ipynb` (선택)
 
 ---
 
