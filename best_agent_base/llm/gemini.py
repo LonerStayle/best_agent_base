@@ -21,9 +21,7 @@ def get_gemini(profile: ModelProfile = DEFAULT_CHAT) -> ChatGoogleGenerativeAI:
     """
     api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        raise RuntimeError(
-            "GOOGLE_API_KEY 또는 GEMINI_API_KEY 환경 변수가 설정되어 있지 않습니다."
-        )
+        raise RuntimeError("GOOGLE_API_KEY 또는 GEMINI_API_KEY 환경 변수가 설정되어 있지 않습니다.")
 
     kwargs: dict = {
         "model": profile.model.value,
