@@ -2325,3 +2325,86 @@ tech-design §6 R-1..6 매핑 — 각 위험을 구현 시 코드 한 줄 한 �
   ```
 - **검증**: `uv run pytest tests/test_init_purity.py tests/test_no_domain_vocab.py -v` → 23 passed (init_purity 3건 + no_domain_vocab 20건 = 9 prompts term + 9 llm term + 2 dir_exists). `uv run pytest -v` → 111 passed (전체 무회귀; Phase 2 신규 src 6 모듈 모두 forbidden vocab 0건 GREEN). `uv run ruff check best_agent_base/ tests/` → All checks passed (notebooks 트리의 기존 미해결 lint 이슈는 Task 7 scope 외).
 - **연관 항목**: CH-20260503-003 (구현계획서 — Task 7 정의), CH-20260503-007 (Task 4 LLMClient Protocol — runtime_checkable docstring 보강 본 task 에서 동시 처리), CH-20260503-013 (Task 6 GeminiClient — `best_agent_base/llm/gemini.py` 가 신규 vocab scan 대상에 포함), CH-20260503-014 (Task 6.5 AnthropicClient — `best_agent_base/llm/anthropic.py` 가 신규 vocab scan 대상에 포함)
+
+### [2026-05-03 21:05] [코드-수정] (task: Task 8 — main.py 마이그레이션)
+- **id**: CH-20260503-016
+- **이유**: R-3 mitigation 완수. Task 1 (CH-20260503-004) 의 `langchain*` / `langgraph` deps 제거 + Task 6 (CH-20260503-013) 의 `get_gemini()` 팩토리 제거로 기존 `main.py` 의 `from langgraph.graph import ...` / `from best_agent_base.llm.gemini import get_gemini` 두 import 가 모두 깨진 상태. pytest 는 import-only 가드 (`if __name__ == "__main__"`) 덕에 영향 없었지만 `python main.py` 실행 또는 `import main` 시점에 `ModuleNotFoundError` / `ImportError` 발생. 본 task 가 main.py 를 GeminiClient 기반 단순 비동기 호출 데모로 재작성하여 베이스 패키지의 public entry point 정합성을 복원. langgraph workflow 데모는 베이스 책임 영역 외 — 도메인 프로젝트가 자기 그래프 정의 + GeminiClient 주입 패턴을 따르는 구조로 정리.
+- **무엇이**: main.py 전체 (35행 → 28행) — `langgraph.graph.{END, START, StateGraph}` + `typing_extensions.TypedDict` + `get_gemini` import 4건 제거, `GeminiClient` + `RenderContext` + `asyncio` import 3건 신규. `State(TypedDict)` + `build_graph()` (StateGraph 빌더) + 동기 `main()` (graph.invoke) 제거. 신규 비동기 `_main()` (load_dotenv → GeminiClient() → await client.generate(RenderContext()) → resp.text + cache_hit/static_hash 출력) + 동기 wrapper `main()` (asyncio.run) 추가.
+- **영향범위**: `main.py` public entry point 시그니처 변경 — `build_graph()` 함수 시그니처 / `State` 타입 / 동기 `main()` 의 입출력 의미 모두 제거 (외부 호출자가 있다면 깨짐). `if __name__ == "__main__"` 진입점은 유지하되 비동기 코루틴 (`_main`) 을 `asyncio.run` 으로 감쌈. 호출 동작 = 정적 prompts (Phase 1 RenderContext 기본값) 만 보낸 1회 generate → 응답 텍스트 + cache_hit / static_hash 출력. pytest 영향 없음 (main.py 대상 테스트 부재). 후속 영향 = Task 9 의 최종 GREEN 검증에서 main.py import 가 깨지지 않은 상태로 전체 ruff/format/pytest 가 clean. 도메인 프로젝트가 base 의 호출 패턴을 따라 자기 graph 에 GeminiClient 주입 가능.
+- **위험 카테고리**: breaking
+- **세부 변경 (1건)**:
+  - `main.py` — langgraph 기반 동기 graph 빌더 데모 → GeminiClient 기반 비동기 단일 호출 데모로 전체 재작성. public entry point 시그니처 (`build_graph`, `State`, sync `main()` 의 invoke 의미) 제거 + 신규 `_main()` async 함수 + asyncio.run wrapper 추가.
+- **변경 전 코드** (per file)
+  ```python
+  # file: main.py (변경 전 — 35 lines, langgraph 기반)
+  from dotenv import load_dotenv
+  from langgraph.graph import END, START, StateGraph
+  from typing_extensions import TypedDict
+
+  from best_agent_base.llm.gemini import get_gemini
+
+
+  class State(TypedDict):
+      question: str
+      answer: str
+
+
+  def build_graph():
+      llm = get_gemini()
+
+      def answer_node(state: State) -> State:
+          result = llm.invoke(state["question"])
+          return {"question": state["question"], "answer": result.content}
+
+      graph = StateGraph(State)
+      graph.add_node("answer", answer_node)
+      graph.add_edge(START, "answer")
+      graph.add_edge("answer", END)
+      return graph.compile()
+
+
+  def main():
+      load_dotenv()
+      app = build_graph()
+      result = app.invoke({"question": "한 줄로 자기소개 해줘.", "answer": ""})
+      print(result["answer"])
+
+
+  if __name__ == "__main__":
+      main()
+  ```
+- **변경 후 코드** (per file)
+  ```python
+  # file: main.py (변경 후 — 28 lines, GeminiClient 기반)
+  """best_agent_base 단순 호출 데모.
+
+  Phase 2 GeminiClient 사용. 도메인 프로젝트는 이 패턴을 참고.
+  """
+
+  from __future__ import annotations
+
+  import asyncio
+
+  from dotenv import load_dotenv
+
+  from best_agent_base.llm.gemini import GeminiClient
+  from best_agent_base.prompts.render import RenderContext
+
+
+  async def _main() -> None:
+      load_dotenv()
+      client = GeminiClient()
+      resp = await client.generate(RenderContext())
+      print(resp.text)
+      print(f"\n[cache_hit={resp.cache_hit} static_hash={resp.static_hash}]")
+
+
+  def main() -> None:
+      asyncio.run(_main())
+
+
+  if __name__ == "__main__":
+      main()
+  ```
+- **검증**: `uv run ruff check main.py` → All checks passed. `uv run ruff format --check main.py` → 1 file already formatted. `uv run python -c "import main; print(main.main)"` → `<function main at 0x...>` (이전 깨진 import 복구 확인). `uv run pytest -v` → 111 passed (Task 7 직후 baseline 과 동일, 무회귀).
+- **연관 항목**: CH-20260503-003 (구현계획서 — Task 8 정의), CH-20260503-004 (Task 1 deps 교체 — `langchain*` / `langgraph` 제거가 본 마이그레이션의 직접 트리거 = R-3 발동 시점), CH-20260503-013 (Task 6 GeminiClient — `get_gemini()` 팩토리 제거 + `GeminiClient` 클래스 신설로 본 main.py 가 사용할 신규 public API 제공)
