@@ -1,3 +1,1 @@
-from best_agent_base.llm import get_gemini
-
-__all__ = ["get_gemini"]
+"""best_agent_base — Python backend agent base module (see TODO.md for 14-Phase roadmap)."""

@@ -2,7 +2,7 @@ from dotenv import load_dotenv
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
-from best_agent_base import get_gemini
+from best_agent_base.llm.gemini import get_gemini
 
 
 class State(TypedDict):
