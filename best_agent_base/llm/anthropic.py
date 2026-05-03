@@ -53,15 +53,24 @@ class AnthropicClient:
         *,
         cache_policy: CachePolicy | None = None,
     ) -> LLMResponse:
+        """Phase 1 render(ctx) 출력을 Anthropic Messages API 로 호출, 캐싱 정책 반영.
+
+        Raises: anthropic SDK 예외 (BadRequestError / RateLimitError / etc.) 그대로 전파 (D6).
+        에러 envelope 변환은 도구 베이스 Phase 의 본질이라 본 어댑터에서 흡수하지 않음.
+        """
         policy = cache_policy if cache_policy is not None else CachePolicy()
         static_text, dynamic_text = build_gemini_messages(ctx)
         key = get_static_hash(ctx)
 
+        # HASH_CHANGE 가시성 (R-2). 메트릭 계약: HASH_CHANGE 는 같은 호출 안의 후속
+        # MISS 와 union 으로 발생 (Gemini 어댑터 동일) — observer 합산 시 overcount 주의.
         if self._last_hash is not None and self._last_hash != key:
             self._metrics.emit(CacheEvent.HASH_CHANGE, key)
         self._last_hash = key
 
-        # system 메시지 구성 — cache_policy.enabled 면 마지막 block 에 cache_control 부착
+        # system 메시지 구성 — cache_policy.enabled 면 마지막 block 에 cache_control 부착.
+        # force_invalidate=True 는 marker 미부착 (= disabled 와 동일 효과). Anthropic 은
+        # client-side invalidate API 가 없어 marker 미부착으로 server-side cache skip 효과 (D7).
         system_block: dict = {"type": "text", "text": static_text}
         if policy.enabled and not policy.force_invalidate:
             system_block["cache_control"] = {"type": "ephemeral"}
