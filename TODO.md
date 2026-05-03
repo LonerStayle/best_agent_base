@@ -67,6 +67,7 @@
   ├── attachment-system.md               # 30+ 어태치먼트 자동 수집
   ├── human-in-the-loop.md               # 권한 3단계 + Promise/resolve
   ├── prompt-engineering-techniques.md   # 7섹션 · 캐시 경계 마커
+  ├── 시스템프롬프트-7섹션-요약.md       # 7 섹션 각각의 주제·핵심·역할 (Phase 1 1차 자료)
   ├── todo-task-system-analysis.md       # V2 파일 기반 투두 + lockfile
   ├── toolsearch-시스템.md               # always-load / deferred / 메타도구
   ├── 에이전트-개발-인사이트_cc질의.md   # "안 만들기" 철학
@@ -115,65 +116,113 @@ CC 분석 문서에서 반복적으로 확인된 5가지 핵심 컨셉. 모든 �
 
 ---
 
-## 🏗️ Phase 0 — 프로젝트 골격 & 폴더 구조 설계
+## 🏗️ Phase 0 — 프로젝트 골격 & 폴더 구조 설계  ✅ 완료 (tag `phase-0-skeleton-done`)
 
 > **목적**: 빈 껍데기 + 모듈 트리 + 의존 정리. 코드 본체는 다음 Phase부터.
+> **결과**: 13/13 AC GREEN, 17 단위 테스트 통과, ruff clean, Docker postgres+redis healthy.
+> **산출물**: `docs/features/2026-05-03-phase-0-skeleton/` (PRD + tech-design + impl-plan)
 
-- [ ] 폴더 구조 합의 (아래 초안 검토·수정)
+- [x] 폴더 구조 합의 — Flat 9-package layout 채택 (D-9). Phase 0 종료 시점의 실제 트리:
   ```
   best_agent_base/
-  ├── core/                  # 하네스 · 세션 · ReAct 루프
-  │   ├── session.py
-  │   ├── react_loop.py      # while-true 단순 루프
-  │   └── state.py
-  ├── prompts/               # 시스템 프롬프트 정적/동적 분리
-  │   ├── boundary.py        # __SYSTEM_PROMPT_DYNAMIC_BOUNDARY__
-  │   ├── static_sections.py
-  │   └── dynamic_sections.py
-  ├── attachments/           # 이중 어태치먼트 시스템
-  │   ├── collectors/        # 그룹별 수집기들
-  │   ├── pipeline.py        # 3그룹 병렬 수집
-  │   └── reminders.py       # <system-reminder> 래핑
-  ├── tools/
-  │   ├── base.py            # Tool 추상 + L3 검증 훅
-  │   ├── registry.py        # always-load / deferred 분류
-  │   ├── search.py          # ToolSearch 메타 도구
-  │   ├── pipeline.py        # 10단계 실행 파이프라인
-  │   └── builtins/          # Read, Write, Bash(?), Agent, TaskCreate ...
-  ├── hitl/                  # human-in-the-loop
-  │   ├── permissions.py     # allow/ask/deny 3단계
-  │   └── waiter.py          # asyncio.Event 기반 대기
-  ├── llm/
-  │   └── gemini.py          # 이미 있음
-  ├── context/               # 컨텍스트 관리
-  │   ├── compaction.py      # 토큰 임계 시 요약
-  │   ├── handoff.py         # 인수인계 메시지
-  │   └── filesystem.py      # 외부 메모리(파일) 응용
-  ├── api/                   # FastAPI 엔드포인트 (Phase 마지막)
-  │   ├── app.py
-  │   ├── routes/
-  │   └── schemas.py
-  └── db/                    # SQLAlchemy 모델 (세션·태스크 영속화)
-      ├── models.py
-      └── session.py
+  ├── __init__.py            # docstring only (D-13)
+  ├── config.py              # pydantic-settings Settings 진입점 (✓ 본체)
+  ├── core/__init__.py       # 하네스 · 세션 · ReAct 루프 (Phase 5)
+  ├── prompts/__init__.py    # 시스템 프롬프트 정적/동적 분리 (Phase 1)
+  ├── attachments/__init__.py # 이중 어태치먼트 시스템 (Phase 3)
+  ├── tools/__init__.py      # Tool base, registry, search, builtins (Phase 4, 6)
+  ├── hitl/__init__.py       # human-in-the-loop (Phase 8)
+  ├── llm/                   # 모델 어댑터
+  │   ├── __init__.py        # docstring only
+  │   ├── models.py          # ✓ GeminiModel(StrEnum) — 모델 ID 카탈로그
+  │   ├── profiles.py        # ✓ ModelProfile(BaseModel, frozen) + 베이스 프리셋
+  │   └── gemini.py          # ✓ get_gemini(profile) 팩토리 (lazy 인스턴스화)
+  ├── context/__init__.py    # 컨텍스트 관리·캐시·블롭 Protocol (Phase 9)
+  ├── api/__init__.py        # FastAPI 엔드포인트 (Phase 14)
+  └── db/__init__.py         # SQLAlchemy 모델 · Tier 2 영속 (Phase 9·11·14)
+
+  tests/
+  ├── __init__.py
+  ├── test_smoke.py          # ✓ 11 cases — 9 서브패키지 + config import 무결성
+  ├── test_settings.py       # ✓ 6 cases — Settings 우선순위 + lazy 룰 (D-12)
+  └── test_llm_profiles.py   # ✓ 12 cases — 모델/프로파일 카탈로그 검증 (raw string 거부)
+
+  scripts/
+  ├── __init__.py
+  └── change_id.py           # ✓ js-super:change-history 헬퍼 (CH-id 생성)
+
+  docs/
+  ├── local-dev-setup.md             # ✓ docker-compose 사용 가이드
+  └── features/2026-05-03-phase-0-skeleton/
+      ├── phase-0-skeleton-requirements.md   # ✓ PRD
+      ├── phase-0-skeleton-tech-design.md    # ✓ 개발방향
+      └── phase-0-skeleton-implementation-plan.md  # ✓ 구현계획서
+
+  # 루트
+  docker-compose.yml         # ✓ postgres host 5435 + redis 6379 + healthchecks
+  .env.example               # ✓ GOOGLE_API_KEY/DATABASE_URL/REDIS_URL/BLOB_STORE_URL/...
+  pyproject.toml             # ✓ deps + [tool.ruff] + [tool.pytest.ini_options]
+  uv.lock                    # ✓ 결정성 보장 (NFR-1)
+  main.py                    # ✓ LangGraph 단일 노드 데모 (Settings 마이그레이션은 Phase 1+ 그루밍)
+  README.md                  # ✓ Setup 4 단계 + 🟢 Phase 0 완료 상태
+  TODO.md                    # 이 문서
+  .python-version, .gitignore, .vscode/  # 기타 루트 파일
   ```
-- [ ] 의존성 추가 (`uv add fastapi uvicorn sqlalchemy alembic pydantic-settings tiktoken`)
-- [ ] 디렉토리·`__init__.py` 빈 껍데기로 생성, import 경로 검증
-- [ ] `pyproject.toml`에 `tool.ruff`, `tool.pytest` 최소 설정
-- [ ] 환경 변수 로딩 일원화 (`pydantic-settings` 기반 `Settings`)
+  > 각 서브패키지의 본체 파일(`session.py`, `react_loop.py`, `boundary.py` 등)은 해당 Phase 에서 생성. Phase 0 시점에는 빈 `__init__.py` (한 줄 docstring) 만 박음 (D-13). **예외**: `llm/` 은 Phase 0 후속 보강(`1e5914a`) 으로 모델 카탈로그(`models.py`) + 프로파일(`profiles.py`) + 팩토리(`gemini.py`) 본체가 들어감 — 도메인 교체 가능 슬롯 (원칙 #8).
+- [x] 의존성 추가 — `fastapi uvicorn sqlalchemy[asyncio] asyncpg alembic pydantic-settings tiktoken` (런타임) + `pytest pytest-asyncio ruff aiosqlite` (dev)
+- [x] 디렉토리·`__init__.py` 빈 껍데기로 생성, import 경로 검증 — 9 서브패키지 + smoke 테스트 11 cases
+- [x] `pyproject.toml`에 `tool.ruff`, `tool.pytest` 최소 설정 — line-length=100, py312, E/F/I + testpaths/asyncio_mode=auto
+- [x] 환경 변수 로딩 일원화 (`pydantic-settings` 기반 `Settings`) — 6 필드 (google_api_key 필수 + log_level/database_url/agent_state_dir 디폴트 + redis_url/blob_store_url Optional), lazy 인스턴스화 (D-12)
+- [x] **추가**: 로컬 dev 인프라 (`docker-compose.yml` — postgres host **5435** + redis 6379 + healthchecks) — D-11
+- [x] **추가**: `docs/local-dev-setup.md` — Docker 사용 가이드
+- [x] **추가**: `scripts/change_id.py` — js-super:change-history 헬퍼
+
+**Phase 1+ 그루밍 노트** (final code review 도출, 각 Phase 진입 시 처리):
+1. README Status 라벨 갱신 (이미 처리됨 → 🟢 Phase 0 완료)
+2. `main.py` 의 `load_dotenv()` 직접 호출 → `Settings()` 진입점으로 마이그레이션
+3. `tests/conftest.py` 도입 (Phase 1+ 부터 공통 async fixture 필요 시)
+4. `Settings.log_level` 을 `Literal[DEBUG, INFO, WARNING, ERROR, CRITICAL]` 로 강화 (Phase 11 Hooks 시점)
+5. `Settings.agent_state_dir` 을 `Path` 로 정규화 (Phase 9 캐시/블롭 본체에서)
+6. `extra="ignore"` → `extra="forbid"` 전환 검토 (Phase 11 Settings 시스템 확장 시)
 
 ---
 
 ## 🧱 Phase 1 — 시스템 프롬프트 기법 (정적/동적 분리)
 
-> **참조**: `prompt-engineering-techniques.md`, `에이전트-성능-결정요인-총정리.md`
+> **참조 (필수)**:
+> - `prompt-engineering-techniques.md` — 정적/동적 경계 마커 메커니즘
+> - `에이전트-성능-결정요인-총정리.md` — 14 프롬프트 기법 + 캐시 분리
+> - **`시스템프롬프트-7섹션-요약.md`** — **7 섹션 각각의 주제·핵심 내용·역할 (헤딩 골격 설계 시 1차 자료)**
+>
+> **도메인 중립성 (필수)**: 본 베이스의 7 섹션 골격은 **어떤 도메인 에이전트에서도 그대로 쓸 수 있게** 설계. CC 의 7 섹션은 코딩 도메인용 콘텐츠로 채워져 있지만 — 우리 베이스는 **섹션 슬롯과 정적/동적 경계만 제공**, 콘텐츠는 도메인 프로젝트가 register/주입 (원칙 #8 Open/Closed 적용). 코딩 어휘를 베이스에 박지 않는다.
 
-- [ ] 상황별 헤딩 7섹션 골격을 파이썬 데이터 구조로 (Intro / System / Doing tasks / Executing actions / Using tools / Tone & style / Output efficiency)
-- [ ] `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 마커로 정적/동적 경계 구현
-- [ ] `dangerous_uncached(name, content, reason)` 헬퍼 — 캐시를 깨는 섹션은 이유까지 명시·기록
-- [ ] 조건부 섹션은 무조건 동적 영역으로 (정적에 if 두지 말기)
-- [ ] 정적 섹션 해시 → 캐시 적중률 측정용 로깅
-- [ ] 단위 테스트: 정적 섹션 안정성, 동적 섹션 변동 허용
+### 7 섹션 골격 (참조 자료의 의미 정리)
+
+| # | 섹션 | 주제 | 베이스 슬롯 책임 |
+|---|---|---|---|
+| 1 | **Intro** | 정체성 + 보안 가드 ("너는 누구") | 빈 슬롯 — 도메인이 채움 (CC: 코딩 에이전트 / 의료: 의료 보조 / 금융: 거래 보조 등) |
+| 2 | **System** | 도구·UI·시스템 작동 규칙 (메타 환경) | 베이스 공통 룰만 (system-reminder 태그, prompt injection 경고, 컨텍스트 압축 안내) — 도메인 부가 룰 추가 가능 |
+| 3 | **Doing tasks** | 작업 철학 (가장 김; CC 는 코딩 철학) | **빈 슬롯** — 도메인이 채움. `@[MODEL: ...]` 마커 누적 영역 (원칙 #5) |
+| 4 | **Executing actions with care** | 위험 작업 가드 (가역성/blast radius) | 베이스 공통 가드 골격 (4 카테고리: 파괴적/되돌리기 어려움/공유 영향/3rd-party) — 도메인이 카테고리 확장 |
+| 5 | **Using your tools** | 도구 선택 규칙 (전용 도구 우선, 병렬/순차) | 베이스가 도구 메타데이터(`is_readonly`)로 자동 안내 — 도메인은 도구 개별 description 만 |
+| 6 | **Tone and style** | 응답 표기 규칙 (말투, 형식) | 베이스 디폴트 (이모지/file_path 형식 등) — 도메인이 override 가능 |
+| 7 | **Output efficiency** | 출력 양·우선순위 (액션 먼저, inverted pyramid) | 베이스 공통 디폴트 + audience 프로파일 hook (외부/내부/엔드유저 등) |
+
+### 작업 항목
+
+- [ ] **Section Protocol** — `class PromptSection(Protocol)` (`name`, `static: bool`, `render(ctx) -> str`). 7 섹션이 인스턴스, 도메인이 contents 주입 또는 교체 가능
+- [ ] 7 섹션 골격을 `prompts/sections.py` 의 데이터 구조로 (이름·정적/동적 분류·기본 디폴트 콘텐츠 — 디폴트는 *도메인-중립* 한 일반 가이드라인만)
+- [ ] `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 마커로 정적/동적 경계 구현 (`prompts/boundary.py`)
+- [ ] `dangerous_uncached(name, content, reason)` 헬퍼 — 캐시를 깨는 섹션은 이유까지 명시·기록 (관찰 데이터 축적)
+- [ ] 조건부 섹션은 무조건 동적 영역으로 (정적에 `if` 두지 말기 — 캐시 변형 회피)
+- [ ] 정적 섹션 해시 → 캐시 적중률 측정용 로깅 (Phase 2 캐시 메트릭과 연동 준비)
+- [ ] **PromptBuilder** — 등록된 7 섹션 + dynamic 섹션을 합쳐 최종 프롬프트 string 생성 (정적/동적 경계 마커 포함)
+- [ ] **Domain override hook** — 도메인이 특정 섹션의 콘텐츠를 교체·확장할 수 있는 register API
+- [ ] 단위 테스트:
+  - 정적 섹션 안정성 (동일 입력 → 동일 해시)
+  - 동적 섹션 변동 허용 (매 turn 다른 출력 OK)
+  - 도메인 콘텐츠 교체 시 정적/동적 분리 유지
+  - 7 섹션 순서·ID 일관성
 
 ---
 
