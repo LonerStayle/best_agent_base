@@ -6,6 +6,8 @@ D1-7=δ: sync 영구. 도메인 비동기 fetch 는 호출자 책임.
 
 from __future__ import annotations
 
+import hashlib
+
 from pydantic import BaseModel, ConfigDict
 
 from best_agent_base.prompts.boundary import SYSTEM_PROMPT_DYNAMIC_BOUNDARY
@@ -66,3 +68,13 @@ def render(ctx: RenderContext) -> str:
     static = _render_static(ctx)
     dynamic = _render_dynamic(ctx)
     return f"{static}\n\n{SYSTEM_PROMPT_DYNAMIC_BOUNDARY}\n\n{dynamic}"
+
+
+def get_static_hash(ctx: RenderContext) -> str:
+    """정적 섹션 묶음의 sha256 hex digest 첫 16자.
+
+    Phase 2 의 KV 캐시 적중률 측정과 연동 (실제 측정은 Phase 2).
+    """
+    static_text = _render_static(ctx)
+    digest = hashlib.sha256(static_text.encode("utf-8")).hexdigest()
+    return digest[:16]
