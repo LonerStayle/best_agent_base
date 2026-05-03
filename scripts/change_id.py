@@ -4,6 +4,7 @@ js-super:change-history 용 CH-id 생성 헬퍼.
 CH-id 포맷: CH-YYYYMMDD-NNN
 - 같은 feature 폴더 내 모든 *.md 파일을 스캔하여 오늘 날짜의 최대 시퀀스를 찾고 +1.
 """
+
 from __future__ import annotations
 
 import re

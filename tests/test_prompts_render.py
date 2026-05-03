@@ -35,7 +35,7 @@ def test_render_static_before_boundary_dynamic_after():
     static_part, dynamic_part = output.split(SYSTEM_PROMPT_DYNAMIC_BOUNDARY)
 
     # 7 섹션의 베이스 텍스트 일부가 정적부에 포함
-    assert "assistant agent" in static_part        # Intro
+    assert "assistant agent" in static_part  # Intro
     assert "Operating environment" in static_part  # System
     # 동적부는 비어있을 수도, 짧을 수도 있음 (Phase 1 = 동적 콘텐츠 없음)
     # 단, 마커 앞에 위치하지 않음을 보장

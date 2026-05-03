@@ -23,9 +23,7 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
 
-    database_url: str = (
-        "postgresql+asyncpg://postgres:postgres@localhost:5435/best_agent_base"
-    )
+    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5435/best_agent_base"
 
     agent_state_dir: str = "./.agent_state"
 

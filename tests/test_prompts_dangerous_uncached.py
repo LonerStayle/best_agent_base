@@ -40,8 +40,8 @@ def test_dangerous_uncached_satisfies_protocol():
 @pytest.mark.parametrize(
     "kwargs",
     [
-        {"name": "x", "content": "c"},                  # reason 누락
-        {"name": "x", "content": "c", "reason": ""},    # 빈 문자열
+        {"name": "x", "content": "c"},  # reason 누락
+        {"name": "x", "content": "c", "reason": ""},  # 빈 문자열
     ],
 )
 def test_dangerous_uncached_rejects_missing_or_empty_reason(kwargs):

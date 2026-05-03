@@ -10,10 +10,7 @@ from best_agent_base.prompts.render import RenderContext, get_static_hash, rende
 def test_static_part_string_is_stable_over_n_calls():
     """동일 ctx, 베이스 registry → 정적부 문자열 N회 동일."""
     ctx = RenderContext()
-    static_outputs = [
-        render(ctx).split(SYSTEM_PROMPT_DYNAMIC_BOUNDARY)[0]
-        for _ in range(10)
-    ]
+    static_outputs = [render(ctx).split(SYSTEM_PROMPT_DYNAMIC_BOUNDARY)[0] for _ in range(10)]
     assert len(set(static_outputs)) == 1
 
 
@@ -37,6 +34,7 @@ def test_full_render_static_part_unchanged_when_only_dynamic_changes():
 
             def render(self, ctx):  # noqa: ARG002
                 import time
+
                 return f"now: {time.time()}"
 
         registry.register("DynamicTimestamp", DynamicTimestamp())
