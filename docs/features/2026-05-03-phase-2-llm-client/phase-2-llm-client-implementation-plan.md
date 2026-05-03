@@ -1477,3 +1477,71 @@ tech-design §6 R-1..6 매핑 — 각 위험을 구현 시 코드 한 줄 한 �
   ```
 - **검증**: `uv run pytest tests/test_llm_client_protocol.py -v` → 4 passed (RED→GREEN 사이클 완료). `uv run pytest -q` → 85 passed (전체 무회귀, 81 → 85).
 - **연관 항목**: CH-20260503-003 (구현계획서 — Task 4 정의), CH-20260503-005 (Task 2 CachePolicy — `cache_policy: CachePolicy | None = None` 파라미터로 본 Protocol 시그니처에 직접 등장), CH-20260503-006 (Task 3 CacheMetrics — Task 6 GeminiClient 가 본 Protocol 구현 시 함께 통합)
+
+### [코드-수정] 2026-05-03 — Task 5: build_gemini_messages 추가
+
+- **id**: CH-20260503-008
+- **이유**: FR-3 (BOUNDARY 마커 기준 정적/동적 split → Gemini 메시지 매핑) / AC-3 (`build_gemini_messages(ctx)` 가 Phase 1 `render(ctx)` 출력의 BOUNDARY 위/아래로 정확히 분리; 마커는 어느 쪽에도 남지 않음) 의 구현. Task 6 의 `GeminiClient` 가 본 함수 출력을 `system_instruction` (static, CachedContent 대상) + `contents` 의 dynamic prefix (매 턴 재계산) 로 매핑할 진입점이 됨. 베이스에는 동적 섹션이 없으므로 `dynamic == ""` 가 정상 (도메인이 `static=False` 섹션을 register 하면 그 때 채워짐).
+- **무엇이**: best_agent_base/llm/messages.py (신규 ~21 LOC), tests/test_llm_messages.py (신규 ~28 LOC, 2 cases)
+- **영향범위**: `best_agent_base/llm/messages.py` 신규 모듈 — `build_gemini_messages(ctx: RenderContext) -> tuple[str, str]` 단일 public 함수. Phase 1 `render(ctx)` 의 출력 형식 (`<static>\n\n<BOUNDARY>\n\n<dynamic>`) 에 의존하므로 향후 Phase 1 의 출력 포맷이 바뀌면 본 함수도 동시 갱신 필요. `tests/test_llm_messages.py` 신규 (test_split_at_boundary / test_static_matches_render_static_part). 기존 85 테스트 무영향 — 전체 87 passed (85 → 87). 후속 영향 = Task 6 `GeminiClient.generate` 가 `static, dynamic = build_gemini_messages(ctx)` 호출 후 static → `CachedContent.system_instruction`, dynamic → `contents=[Content(role="user", parts=[Part.from_text(dynamic + user_message)])]` 로 매핑.
+- **위험 카테고리**: side-effect — Phase 1 `render(ctx)` 출력 포맷 (특히 BOUNDARY 앞뒤 `\n\n` separator 와 마커 자체 문자열) 에 강결합. `str.partition` 사용으로 마커가 텍스트에 우연히 없을 때 (e.g. Phase 1 출력 형식 변경) 도 graceful fallback (static 전체, dynamic 빈 문자열) — 단 invariant 위반 (R-5: BOUNDARY 마커는 정확히 1회만 등장) 은 Phase 1 의 `_render_static`/`_render_dynamic` 가 책임. 신규 public API 라는 측면에서 미세 breaking 요소도 있으나, 단일 함수 + 단순 시그니처 (ctx → tuple[str, str]) 라 lock-in 위험 낮음.
+- **세부 변경 (2건)**:
+  - `best_agent_base/llm/messages.py` — 신규 (`build_gemini_messages(ctx) -> (static, dynamic)`; `render(ctx)` → `partition(BOUNDARY)` → `rstrip("\n")` / `lstrip("\n")`)
+  - `tests/test_llm_messages.py` — 신규 2 cases (split_at_boundary: 베이스 `dynamic == ""` & 마커 누출 방지 / static_matches_render_static_part: `render(ctx).partition(BOUNDARY)` 와 정확 일치)
+- **변경 전 코드**: 없음 — 신규 모듈
+- **변경 후 코드** (per file)
+  ```python
+  # file: best_agent_base/llm/messages.py
+  """Phase 1 render(ctx) → Gemini provider 메시지 구조 변환 (FR-3).
+
+  BOUNDARY 마커 기준 (static, dynamic) 으로 정확히 split. 정적부 = 캐시 대상.
+  """
+
+  from __future__ import annotations
+
+  from best_agent_base.prompts.boundary import SYSTEM_PROMPT_DYNAMIC_BOUNDARY
+  from best_agent_base.prompts.render import RenderContext, render
+
+
+  def build_gemini_messages(ctx: RenderContext) -> tuple[str, str]:
+      """Returns (static_text, dynamic_text), split at SYSTEM_PROMPT_DYNAMIC_BOUNDARY.
+
+      Phase 1 `render(ctx)` 출력은 "<static>\n\n<BOUNDARY>\n\n<dynamic>" 형식.
+      정확히 BOUNDARY 마커에서 분리해 trailing/leading whitespace 만 정리.
+      """
+      rendered = render(ctx)
+      static_part, _, dynamic_part = rendered.partition(SYSTEM_PROMPT_DYNAMIC_BOUNDARY)
+      return static_part.rstrip("\n"), dynamic_part.lstrip("\n")
+  ```
+  ```python
+  # file: tests/test_llm_messages.py
+  """build_gemini_messages — Phase 1 render(ctx) 출력 → (static, dynamic) split (FR-3, AC-3)."""
+
+  from __future__ import annotations
+
+  from best_agent_base.llm.messages import build_gemini_messages
+  from best_agent_base.prompts.boundary import SYSTEM_PROMPT_DYNAMIC_BOUNDARY
+  from best_agent_base.prompts.render import RenderContext
+
+
+  def test_split_at_boundary():
+      static, dynamic = build_gemini_messages(RenderContext())
+      # 베이스에는 동적부 없음 → dynamic 은 빈 문자열
+      assert SYSTEM_PROMPT_DYNAMIC_BOUNDARY not in static
+      assert SYSTEM_PROMPT_DYNAMIC_BOUNDARY not in dynamic
+      assert dynamic == ""
+      assert len(static) > 0  # 베이스 7섹션은 항상 있음
+
+
+  def test_static_matches_render_static_part():
+      """build_gemini_messages 의 static = render(ctx) 의 BOUNDARY 앞 부분."""
+      from best_agent_base.prompts.render import render
+
+      rendered = render(RenderContext())
+      static, dynamic = build_gemini_messages(RenderContext())
+      expected_static, _, expected_dynamic = rendered.partition(SYSTEM_PROMPT_DYNAMIC_BOUNDARY)
+      assert static == expected_static.rstrip("\n")
+      assert dynamic == expected_dynamic.lstrip("\n")
+  ```
+- **검증**: `uv run pytest tests/test_llm_messages.py -v` → 2 passed (RED→GREEN 사이클 완료; RED 단계에서 `ModuleNotFoundError: No module named 'best_agent_base.llm.messages'` 확인). `uv run pytest -q` → 87 passed (전체 무회귀, 85 → 87). `uv run ruff format` / `uv run ruff check` → 통과.
+- **연관 항목**: CH-20260503-003 (구현계획서 — Task 5 정의), CH-20260503-007 (Task 4 LLMClient Protocol — `LLMClient.generate(ctx, ...)` 진입점에서 본 함수가 호출되어 ctx → (static, dynamic) 매핑 담당)
