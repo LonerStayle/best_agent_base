@@ -1246,3 +1246,116 @@ tech-design §6 R-1..6 매핑 — 각 위험을 구현 시 코드 한 줄 한 �
   ```
 - **검증**: `uv run pytest tests/test_cache_policy.py -v` → 6 passed (RED→GREEN 사이클 완료).
 - **연관 항목**: CH-20260503-003 (구현계획서 — Task 2 정의), CH-20260503-004 (Task 1 deps 교체 — google-genai 환경 위에서 본 모델 동작)
+
+### [2026-05-03 20:18] [코드-수정] (task: Task 3 — CacheMetrics + Event + Observer)
+- **id**: CH-20260503-006
+- **이유**: D5 결정 (동기 observer `Callable[[CacheEvent, str], None]` — 비동기/queue 대안은 베이스 단순성 위배로 기각) 의 구현. FR-6 (캐시 적중·미적중 메트릭 슬롯) / AC-6 (CacheMetrics 가 hit/miss/hash_change 3 이벤트와 observer 등록을 노출) 충족. 베이스는 인터페이스 + 누적 카운터만 제공하고, 실제 backend (Prometheus / OTel / 로깅) 는 도메인이 observer 로 주입한다. R-5 (oversized observer 가 generate() 호출 path 를 지연시킬 위험) 는 인터페이스 가이드 + 본 모듈 docstring 으로 "observer 는 가벼워야 함, 무거우면 도메인이 task 분리" 정책을 명시하여 mitigate.
+- **무엇이**: best_agent_base/llm/cache_metrics.py (신규), tests/test_cache_metrics.py (신규 — 5 cases)
+- **영향범위**: `best_agent_base/llm/cache_metrics.py` 신규 모듈 (~30 LOC) — `CacheEvent` StrEnum (HIT/MISS/HASH_CHANGE), `CacheObserver` 타입 alias, `CacheMetrics` 클래스 (add_observer/emit/stats). public API = 3 symbol 추가. `tests/test_cache_metrics.py` 신규 (~50 LOC, 5 tests). 기존 76 테스트 무영향 — 전체 81 passed. 후속 영향 = Task 6 의 GeminiClient 가 본 모듈을 import 하여 캐시 hit/miss/hash_change 시점에 emit 호출, Task 4 의 LLMClient Protocol 시그니처가 metrics 주입 포인트 를 노출할지 결정 (현재 plan 상으로는 GeminiClient 생성자 주입).
+- **위험 카테고리**: side-effect — observer callback 이 emit() 호출 path 를 동기적으로 차단 (R-5). 베이스는 인터페이스만 제공하고 정책 (가벼움 강제) 은 docstring + 인터페이스 가이드로 약속. fail-fast 보장 안 함 (observer 예외는 호출자에게 전파되어 generate() 가 실패할 수 있음 — 베이스의 의도된 동작이고 도메인이 try/except 로 감싸야 함).
+- **세부 변경 (2건)**:
+  - `best_agent_base/llm/cache_metrics.py` — 신규 (`CacheEvent(StrEnum)`, `CacheObserver` alias, `CacheMetrics` 클래스 with `_observers: list`, `_counter: Counter[str]`, `add_observer()`, `emit()`, `stats()`)
+  - `tests/test_cache_metrics.py` — 신규 5 cases (event_values / observer_receives_emit / stats_counter / multiple_observers_all_called / no_observers_no_error)
+- **변경 전 코드**: 없음 — 신규 모듈
+- **변경 후 코드** (per file)
+  ```python
+  # file: best_agent_base/llm/cache_metrics.py
+  """CacheMetrics + Event + Observer — 캐시 적중·미적중 슬롯 (FR-6, D5).
+
+  베이스는 인터페이스 + 카운터만. 실제 backend (Prometheus / OTel / 로깅) 는 도메인.
+  observer 는 동기 callable, fire-and-forget. 무거운 backend 는 도메인이 task 분리.
+  """
+
+  from __future__ import annotations
+
+  from collections import Counter
+  from collections.abc import Callable
+  from enum import StrEnum
+
+
+  class CacheEvent(StrEnum):
+      HIT = "hit"
+      MISS = "miss"
+      HASH_CHANGE = "hash_change"
+
+
+  CacheObserver = Callable[[CacheEvent, str], None]
+  """(event, static_hash) → None. 동기 callable, 가볍게."""
+
+
+  class CacheMetrics:
+      """Observer 등록 + 이벤트 emit + 누적 카운터."""
+
+      def __init__(self) -> None:
+          self._observers: list[CacheObserver] = []
+          self._counter: Counter[str] = Counter()
+
+      def add_observer(self, observer: CacheObserver) -> None:
+          self._observers.append(observer)
+
+      def emit(self, event: CacheEvent, static_hash: str) -> None:
+          self._counter[event.value] += 1
+          for obs in self._observers:
+              obs(event, static_hash)
+
+      def stats(self) -> dict[str, int]:
+          return dict(self._counter)
+  ```
+  ```python
+  # file: tests/test_cache_metrics.py
+  """CacheMetrics + observer + event emit 검증 (FR-6, AC-6, D5)."""
+
+  from __future__ import annotations
+
+  from best_agent_base.llm.cache_metrics import CacheEvent, CacheMetrics
+
+
+  def test_event_values():
+      assert CacheEvent.HIT.value == "hit"
+      assert CacheEvent.MISS.value == "miss"
+      assert CacheEvent.HASH_CHANGE.value == "hash_change"
+
+
+  def test_observer_receives_emit():
+      received: list[tuple[CacheEvent, str]] = []
+      metrics = CacheMetrics()
+      metrics.add_observer(lambda ev, h: received.append((ev, h)))
+
+      metrics.emit(CacheEvent.HIT, "abc123")
+      metrics.emit(CacheEvent.MISS, "def456")
+
+      assert received == [(CacheEvent.HIT, "abc123"), (CacheEvent.MISS, "def456")]
+
+
+  def test_stats_counter():
+      metrics = CacheMetrics()
+      metrics.emit(CacheEvent.HIT, "x")
+      metrics.emit(CacheEvent.HIT, "x")
+      metrics.emit(CacheEvent.MISS, "y")
+      metrics.emit(CacheEvent.HASH_CHANGE, "y")
+
+      stats = metrics.stats()
+      assert stats["hit"] == 2
+      assert stats["miss"] == 1
+      assert stats["hash_change"] == 1
+
+
+  def test_multiple_observers_all_called():
+      a: list[CacheEvent] = []
+      b: list[CacheEvent] = []
+      metrics = CacheMetrics()
+      metrics.add_observer(lambda ev, h: a.append(ev))
+      metrics.add_observer(lambda ev, h: b.append(ev))
+
+      metrics.emit(CacheEvent.HIT, "k")
+      assert a == [CacheEvent.HIT]
+      assert b == [CacheEvent.HIT]
+
+
+  def test_no_observers_no_error():
+      metrics = CacheMetrics()
+      metrics.emit(CacheEvent.MISS, "k")
+      assert metrics.stats()["miss"] == 1
+  ```
+- **검증**: `uv run pytest tests/test_cache_metrics.py -v` → 5 passed (RED→GREEN 사이클 완료). `uv run pytest -q` → 81 passed (전체 무회귀).
+- **연관 항목**: CH-20260503-003 (구현계획서 — Task 3 정의), CH-20260503-005 (Task 2 CachePolicy — 같은 `best_agent_base.llm` 패키지 신규 public API 라인업)
