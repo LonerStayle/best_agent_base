@@ -1,7 +1,7 @@
 # 인수인계 문서 — best_agent_base
 
 > **다음 세션이 이 한 파일만 읽어도 즉시 이어갈 수 있게 작성.**
-> 마지막 갱신: 2026-05-03 (Phase 2 완료 + Anthropic 어댑터 흡수 + 산출물 룰 노트북 추가)
+> 마지막 갱신: 2026-05-03 (Phase 2 완료 + Anthropic 어댑터 흡수 + 산출물 룰 노트북 추가 + split_at_boundary rename wrap-up)
 
 ---
 
@@ -36,23 +36,23 @@
 - `docs/interfaces/phase-1-prompts.md` (산출물 룰 첫 적용)
 - `notebooks/phase-1-prompts-demo.ipynb` (16 cells)
 
-### Phase 2 — LLM 클라이언트 통합 (캐싱 흡수) ✅ 완료 (main `21b27f5` 머지)
+### Phase 2 — LLM 클라이언트 통합 (캐싱 흡수) ✅ 완료 (main `f1a1d31` — `21b27f5` 머지 + `5d88cf6` rename + `f1a1d31` wrap-up)
 
-**산출물** (14 commits, CH-20260503-001 ~ CH-20260503-017):
+**산출물** (16 commits 전체, CH-20260503-001 ~ CH-20260503-017):
 
 - `best_agent_base/llm/` — 5 신규 src + 1 재작성:
   - `client.py` — `LLMClient` Protocol (runtime_checkable, B-thin) + `LLMResponse`/`TokenUsage` (frozen)
   - `cache_policy.py` — `CachePolicy` (enabled / ttl_seconds / force_invalidate, frozen)
   - `cache_metrics.py` — `CacheEvent(StrEnum)` + `CacheObserver` + `CacheMetrics` (observer registry + counter)
-  - `messages.py` — `build_gemini_messages(ctx)` provider-agnostic boundary split
+  - `messages.py` — `split_at_boundary(ctx)` provider-agnostic boundary split (post-merge rename `5d88cf6` — 본래 `build_gemini_messages` 였으나 Final reviewer + Task 6.5 quality reviewer 권장으로 generic 이름화)
   - `gemini.py` — **재작성** (LangChain 제거, `google-genai` 직접 + `CachedContent` + `asyncio.Lock` per static_hash + D6 fallback)
   - `anthropic.py` — `AnthropicClient` + `cache_control: ephemeral` marker on system message
 - `pyproject.toml` deps 교체 — `langchain*` 제거, `google-genai>=1.0` + `anthropic>=0.40` 추가
 - `main.py` — `langgraph` → `GeminiClient` 마이그레이션 (R-3 처리)
 - 7 신규 tests + 2 확장 + `tests/conftest.py` (autouse `restore_registry` — 그루밍 노트 #3 처리) = **111 tests GREEN, ruff clean**
 - `docs/features/2026-05-03-phase-2-llm-client/` — PRD + tech-design + impl-plan
-- **`docs/interfaces/phase-2-llm-client.md`** — 공식 인터페이스 가이드
-- **`notebooks/phase-2-llm-client-demo.ipynb`** — 데모 노트북 (산출물 룰 4부 골격)
+- **`docs/interfaces/phase-2-llm-client.md`** — 공식 인터페이스 가이드 (8섹션, Gemini ↔ Anthropic 비교 표 포함)
+- **`notebooks/phase-2-llm-client-demo.ipynb`** — 데모 노트북 (산출물 룰 4부 골격, 2부에 Gemini + Anthropic 호출 예시 + provider 차이 비교 표 포함)
 
 **핵심 검증 — provider 추상화 흡수**:
 > 두 어댑터 (Gemini `CachedContent` 객체 vs Anthropic `cache_control` ephemeral marker) — 완전히 다른 캐싱 메커니즘이 동일 `LLMClient` Protocol + `CachePolicy` + `CacheMetrics` 흐름으로 흡수. 도메인 호출자는 `await client.generate(ctx, cache_policy=policy)` 한 줄로 provider 차이 모름.
@@ -66,8 +66,9 @@
 
 ### git 상태
 
-- 브랜치: `main` (HEAD `21b27f5` — Phase 2 머지 직후)
+- 브랜치: `main` (HEAD `f1a1d31` — Phase 2 머지 + rename `5d88cf6` + wrap-up `f1a1d31`)
 - `phase-2-llm-client-impl` 브랜치/워크트리 — 머지 후 정리됨
+- **`.env` / `.env.example` 환경 변수**: 사용자가 직접 `ANTHROPIC_API_KEY=` 추가 (typo `ANTHOROPIC` 였던 걸 메인이 자동 fix → 정확 철자). 메모리 저장됨 (`~/.claude/projects/.../memory/phase-2-anthropic-api-key-env.md`)
 - **`.worktrees/병렬구현-테스트` 절대 건드리지 말 것** (사용자 연구용)
 - origin (GitHub `LonerStayle/best_agent_base`) — push 안 함
 - tag `phase-0-skeleton-done` → `68c91a9` (Phase 1·2 종료 시 새 tag 미생성)
@@ -158,7 +159,7 @@
 5. `extra="ignore"` → `extra="forbid"` 검토 (Phase 11)
 6. **노트북 setup 셀 sys.path patch** 임시 — `uv add --dev jupyter ipykernel` 정식 등록 (deps 추가 사용자 승인 필요)
 7. **Phase 0 인터페이스 가이드 + 데모 노트북 backfill** — `docs/interfaces/phase-0-skeleton.md` + `notebooks/phase-0-skeleton-demo.ipynb`
-8. **`build_gemini_messages` rename** — Anthropic 도 재사용 중. `build_provider_messages` 또는 `split_at_boundary` 로 generic화 검토 (후속 그루밍)
+8. ~~**`build_gemini_messages` rename**~~ ✅ Phase 2 wrap-up `5d88cf6` 에서 `split_at_boundary` 로 처리됨 (caller 6개 sync, 노트북 갱신 + Anthropic 호출 예시 셀 추가 포함)
 9. **`count_tokens` Phase 9 마이그레이션** — 두 어댑터 모두 placeholder (`int(words * 1.3)`). Gemini = `client.models.count_tokens`, Anthropic = `client.messages.count_tokens` 정식 API 로 교체
 10. **Anthropic 1h extended cache** — D7 대안에서 deferred. ephemeral 1종으로 단순화. ttl_seconds >= 3600 시 1h cache type 매핑 검토
 11. **노트북 ruff 잔여** — `notebooks/phase-1-prompts-demo.ipynb` 9 errors. Phase 작업 외 별도 commit 그루밍
@@ -215,7 +216,7 @@ uv run python -m scripts.change_id docs/features/<date>-<slug>
 ## 📋 다음 세션 시작 체크리스트
 
 1. [ ] 이 `HANDOFF.md` 한 번 통독
-2. [ ] `git status && git log --oneline -10` 으로 현재 상태 확인 (예상: HEAD `21b27f5` Phase 2 머지)
+2. [ ] `git status && git log --oneline -10` 으로 현재 상태 확인 (예상: HEAD `f1a1d31` Phase 2 wrap-up 완료)
 3. [ ] `uv run pytest && uv run ruff check best_agent_base/ tests/ main.py` 가 GREEN (111 tests) 인지 확인
 4. [ ] 사용자가 "Phase 3 가자" 또는 다른 요청 — 그에 맞춰 진입
 5. [ ] Phase 진입이면: 위 "시작 시퀀스" 그대로 따라가기 (doc 단계는 main, 코드 단계만 worktree)
