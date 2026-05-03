@@ -61,6 +61,7 @@
 | `best_agent_base/llm/cache_policy.py` | `CachePolicy` frozen 모델 (enabled/ttl/force_invalidate) | FR-5 |
 | `best_agent_base/llm/cache_metrics.py` | `CacheEvent(StrEnum)` + `CacheObserver` + `CacheMetrics` (observer registry) | FR-6 |
 | `best_agent_base/llm/messages.py` | `build_gemini_messages(ctx)` — Phase 1 `render(ctx)` → (static, dynamic) split | FR-3 |
+| `best_agent_base/llm/anthropic.py` | `AnthropicClient` 클래스 (LLMClient 적합) + `build_anthropic_messages(ctx, *, cache)` 헬퍼. `anthropic.AsyncAnthropic` 직접 사용. system 메시지 마지막 text block 에 `cache_control: {"type": "ephemeral"}` marker 부착으로 캐싱 (D7) | FR-7 |
 
 ### 변경 (Phase 0 1차 골격 위)
 
@@ -68,7 +69,7 @@
 |---|---|---|
 | `best_agent_base/llm/gemini.py` | LangChain → google-genai 직접 사용으로 재작성. `GeminiClient` 클래스 (LLMClient 적합) + 기존 `get_gemini()` 는 deprecated 또는 thin wrapper | FR-2, FR-4 |
 | `best_agent_base/llm/__init__.py` | docstring-only 유지 (NFR-2) — 본문 변경 없음, AST 검증만 확장 | NFR-2 |
-| `pyproject.toml` | `langchain*` 제거, `google-genai>=1.0` 추가 (정확한 버전은 implementation 단계 결정) | (deps) |
+| `pyproject.toml` | `langchain*` 제거, `google-genai>=1.0` + `anthropic>=0.40` 추가 (정확한 버전은 implementation 단계 context7 검증) | (deps) |
 | `main.py` | `get_gemini()` → `GeminiClient(...)` 마이그레이션 또는 deprecated 데모 분리 (그루밍 노트 #2 동시 처리 후보) | (caller) |
 
 ### 신규 테스트 파일
@@ -81,6 +82,7 @@
 | `tests/test_cache_metrics.py` | observer 등록·이벤트 emit (AC-6) |
 | `tests/test_gemini_adapter.py` | GeminiClient (mock SDK) — generate 흐름 + cache hit/miss (AC-2, AC-4) |
 | `tests/test_cache_key_stability.py` | 동일 ctx → 동일 cache key, N=10 (AC-7) |
+| `tests/test_anthropic_adapter.py` | AnthropicClient (mock SDK) — generate 흐름 + cache_control marker 부착 + cache hit 시뮬레이션 (AC-11, AC-12) |
 
 ### 기존 테스트 확장
 
@@ -214,6 +216,30 @@ def build_gemini_messages(ctx: RenderContext) -> tuple[str, str]:
 
 **근거**: observer 자체가 무겁다는 건 도메인 책임 (Phase 2 §6 R-5 참조). 베이스는 fire-and-forget 동기 emit, 도메인 observer 가 무거우면 자기 안에서 task 분리.
 
+### D7. Anthropic 캐싱 메커니즘 매핑 (Gemini ↔ Anthropic 통합 인터페이스)
+
+**선택**: Anthropic 의 `cache_control: {"type": "ephemeral"}` marker 를 system 메시지의 마지막 text block 에 부착하는 방식. `LLMClient.generate(ctx, *, cache_policy)` 흐름 안에 흡수해 도메인은 provider 차이 모름.
+
+**메커니즘 차이**:
+| 항목 | Gemini | Anthropic |
+|---|---|---|
+| 캐싱 단위 | `CachedContent` 객체 (server-side resource, name 으로 재호출) | system message text block 에 inline marker (요청마다 송신, server 가 hash 매칭으로 자동 hit) |
+| TTL | `CreateCachedContentConfig(ttl="...s")` 명시 | ephemeral = 5min default (1h 도 옵션) — `cache_policy.ttl_seconds` 를 ephemeral type 으로만 매핑 (2 옵션 중 가까운 것 선택) |
+| 적중 신호 | `usage.cached_content_token_count > 0` | `usage.cache_read_input_tokens > 0` (생성은 `cache_creation_input_tokens > 0`) |
+| 키 derivation | client-side `static_hash` → `caches.create()` → name 캐싱 | server-side hash, client 는 동일 system text 만 보내면 됨 |
+
+**통합 흡수 방식**:
+- `LLMClient.generate(ctx, *, cache_policy)` 시그니처는 두 어댑터 공통
+- `cache_policy.enabled=False` → Gemini 는 `caches.create` skip + system_instruction 직접, Anthropic 은 `cache_control` marker 미부착
+- `cache_policy.force_invalidate=True` → Gemini 는 in-memory map 에서 hash 제거 후 새 caches.create, Anthropic 은 invalidate 개념 없음 (server-side automatic) — marker 만 부착하고 marker 위치 변경(예: nonce 추가)으로 hash mismatch 유도 또는 OOS-of-current-task 로 두고 도메인이 `cache_policy.enabled=False` 한 번 호출로 우회
+- 적중 결정: 두 어댑터 모두 응답의 usage 필드 보고 `LLMResponse.cache_hit` 채움 (Gemini = `cached_content_token_count > 0`, Anthropic = `cache_read_input_tokens > 0`)
+
+**대안**:
+- (Anthropic 캐싱 제외) FR-7 = 어댑터만, 캐싱은 Gemini 만. — 본 Phase 의 본질("KV 캐싱 유지·컨트롤") 을 Anthropic 에서 검증 못함. 통합 인터페이스 검증 실패.
+- (extended cache 사용) Anthropic 의 1h cache type 사용. — `cache_policy.ttl_seconds >= 3600` 일 때만 1h, 미만은 ephemeral 로 자동 매핑 가능. 단 implementation 복잡도 ↑, Phase 2 는 ephemeral 한 종류로 단순화. 1h 매핑은 후속 그루밍.
+
+**근거**: 두 SDK 의 1급 캐싱 메커니즘 둘 다 `LLMClient + CachePolicy` 1개 인터페이스로 흡수 가능함을 실증. PRD §1-(B) "통합 인터페이스로 흡수" 의 정확한 검증.
+
 ### D6. SDK 예외 처리 정책
 
 **선택**: google-genai SDK 의 예외 (예: `google.genai.errors.APIError`, `ServerError`, `ClientError`) 를 **그대로 전파**. 베이스에서 envelope (`{ok, error, hint, retryable}`) 변환하지 않음.
@@ -234,6 +260,7 @@ def build_gemini_messages(ctx: RenderContext) -> tuple[str, str]:
 | **R-4** | side-effect | `static` 섹션에 `@[MODEL: ...]` 마커 누적 → hash 변동 → 캐시 자동 무효화 | 의도된 동작. 단 운영 가시성을 위해 `CacheEvent.HASH_CHANGE` emit 으로 도메인이 추적 가능. |
 | **R-5** | perf | metric observer 가 동기 callable — oversized observer (예: 동기 HTTP write) 가 호출 path 지연 | 베이스 정책 명문화 — observer 는 가벼워야 함 (도메인 인터페이스 가이드에 명시). 도메인이 무거운 backend 쓰려면 자기 안에서 task 분리. |
 | **R-6** | breaking | `CachePolicy` frozen 모델에 향후 필드 추가 시 호환성 | Pydantic default 값 + `model_config = ConfigDict(frozen=True, extra="ignore")` 검토. 도메인이 자기 정책 클래스 만들 수 있는 슬롯 (`CachePolicy` 상속 또는 변환). |
+| **R-7** | side-effect | Anthropic `cache_control` marker 가 system 메시지의 마지막 text block 에 부착돼야 적중. block 순서가 흔들리거나 `static_text` 가 미세 변동 시 자동 cache miss (server-side hash mismatch) | Phase 1 `get_static_hash` 가 결정성 보장 (NFR-3) 하므로 동일 ctx → 동일 system_text → 동일 cache hit. marker 부착 위치는 어댑터 코드에서 single point (last text block) 으로 고정. test_anthropic_adapter.py 가 marker 위치·구조 단위 회귀 잡음. |
 
 ## 7. 테스트 전략
 
@@ -274,3 +301,10 @@ def build_gemini_messages(ctx: RenderContext) -> tuple[str, str]:
 - **무엇이**: phase-2-llm-client-tech-design.md 전체 (§1..§7 신규 작성 + §5-D6 권장 보완)
 - **영향범위**: 없음 (최초 생성). 후속 영향 = phase-2-llm-client-implementation-plan.md (writing-plans 단계 시작 시 D1..D6 → task 매핑 + R-1..6 → 위험 코드 지점 매핑 필수)
 - **연관 항목**: CH-20260503-001 (PRD)
+
+### [2026-05-03 20:30] [개발방향-수정]
+- **id**: CH-20260503-011
+- **이유**: PRD CH-20260503-010 의 OOS-1 retroactive 제거 + FR-7 추가에 대한 cascade 갱신. tech-design 에 D7 (Anthropic 캐싱 메커니즘 매핑) + R-7 (cache_control marker 위치·구조 위험) + §2 영향 컴포넌트 (`anthropic.py`) + §7 테스트 (test_anthropic_adapter.py) 추가.
+- **무엇이**: §2 영향 컴포넌트 표 (anthropic.py + test_anthropic_adapter.py 추가, pyproject.toml deps 항목에 anthropic 추가), §5 D7 신규 (Gemini ↔ Anthropic 캐싱 메커니즘 매핑 + 통합 흡수 방식), §6 R-7 신규 (Anthropic marker 위치 위험 + Phase 1 결정성 mitigation)
+- **영향범위**: phase-2-llm-client-implementation-plan.md (Task 6.5 신규 — Anthropic 어댑터 task. context7 으로 anthropic SDK 정확 시그니처 확인 필수). 기존 Task 1 deps 는 이미 commit 됐지만 anthropic 추가는 Task 6.5 시점에 별도 commit 으로 추가 (uv add anthropic). 기존 Task 7 (NFR vocab scan llm/) 가 anthropic.py 도 자동 cover.
+- **연관 항목**: CH-20260503-001 (PRD 최초), CH-20260503-002 (tech-design 최초), CH-20260503-010 (PRD FR-7 추가)

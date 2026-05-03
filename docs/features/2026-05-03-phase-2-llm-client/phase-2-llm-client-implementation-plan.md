@@ -886,6 +886,279 @@ git commit -m "feat(llm): rewrite gemini.py with google-genai + CachedContent + 
 
 ---
 
+### Task 6.5: AnthropicClient 어댑터 + cache_control 통합 (FR-7 / D7 / R-7)
+
+**Files:**
+- Create: `best_agent_base/llm/anthropic.py`
+- Test: `tests/test_anthropic_adapter.py`
+- Modify: `pyproject.toml` — `anthropic>=0.40` 추가 (정확 버전은 implementer 가 context7 으로 검증)
+
+매핑: FR-7 / D7 / R-7 / AC-11, AC-12
+
+**중요 — context7 사용 필수**: implementer 는 코드 작성 전 `mcp__context7__resolve-library-id` + `mcp__context7__query-docs` 로 anthropic SDK 의 다음 항목을 정확히 확인:
+1. `AsyncAnthropic()` constructor + env var (`ANTHROPIC_API_KEY`)
+2. `await client.messages.create(model=..., max_tokens=..., system=..., messages=...)` 시그니처
+3. `system=[{"type": "text", "text": "...", "cache_control": {"type": "ephemeral"}}]` list-of-blocks 구조
+4. 응답의 `usage.cache_creation_input_tokens` / `cache_read_input_tokens` 필드명·타입
+5. 최신 model id (`claude-sonnet-4-5-20250929` 가정, context7 으로 재확인)
+
+context7 결과가 본 plan 과 다르면 plan 우선 (D7 결정) — 단 시그니처 차이는 implementer 가 즉시 fix.
+
+- [ ] **Step 1: deps 추가**
+
+```bash
+cd /Users/goldenplanet/jinsup_space/best_agent_base/.worktrees/phase-2-llm-client-impl
+# pyproject.toml dependencies 에 anthropic>=0.40 (또는 context7 검증된 lower bound) 추가
+uv sync
+```
+
+- [ ] **Step 2: failing tests 작성**
+
+```python
+# tests/test_anthropic_adapter.py
+"""AnthropicClient 어댑터 검증 (FR-7, D7 / AC-11, AC-12)."""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from best_agent_base.llm.anthropic import AnthropicClient
+from best_agent_base.llm.cache_metrics import CacheEvent, CacheMetrics
+from best_agent_base.llm.cache_policy import CachePolicy
+from best_agent_base.llm.client import LLMClient
+from best_agent_base.prompts.render import RenderContext
+
+
+def _make_client(monkeypatch: pytest.MonkeyPatch) -> tuple[AnthropicClient, MagicMock]:
+    fake_sdk = MagicMock()
+    fake_sdk.messages.create = AsyncMock(
+        return_value=MagicMock(
+            content=[MagicMock(text="hi", type="text")],
+            usage=MagicMock(
+                input_tokens=10,
+                output_tokens=5,
+                cache_creation_input_tokens=0,
+                cache_read_input_tokens=0,
+            ),
+        )
+    )
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-key")
+    monkeypatch.setattr(
+        "best_agent_base.llm.anthropic._build_anthropic_client", lambda: fake_sdk
+    )
+    return AnthropicClient(model="claude-sonnet-4-5-20250929"), fake_sdk
+
+
+def test_protocol_compliance(monkeypatch: pytest.MonkeyPatch):
+    client, _ = _make_client(monkeypatch)
+    assert isinstance(client, LLMClient)
+
+
+@pytest.mark.asyncio
+async def test_first_call_attaches_cache_control_marker(monkeypatch: pytest.MonkeyPatch):
+    """system 메시지의 마지막 text block 에 cache_control ephemeral marker 부착 (FR-7, AC-12)."""
+    client, fake = _make_client(monkeypatch)
+    metrics = CacheMetrics()
+    client._metrics = metrics
+    events: list[CacheEvent] = []
+    metrics.add_observer(lambda ev, h: events.append(ev))
+
+    await client.generate(RenderContext())
+
+    fake.messages.create.assert_awaited_once()
+    call_kwargs = fake.messages.create.call_args.kwargs
+    system = call_kwargs.get("system")
+    assert isinstance(system, list)
+    assert len(system) > 0
+    last_block = system[-1]
+    assert last_block["type"] == "text"
+    assert last_block["cache_control"] == {"type": "ephemeral"}
+
+
+@pytest.mark.asyncio
+async def test_cache_hit_reflected_in_response(monkeypatch: pytest.MonkeyPatch):
+    """server-side cache hit (mock 으로 cache_read_input_tokens > 0) 시 LLMResponse.cache_hit=True (AC-12)."""
+    client, fake = _make_client(monkeypatch)
+    fake.messages.create.return_value = MagicMock(
+        content=[MagicMock(text="hi", type="text")],
+        usage=MagicMock(
+            input_tokens=2,  # input 작음 (대부분 cached)
+            output_tokens=5,
+            cache_creation_input_tokens=0,
+            cache_read_input_tokens=200,  # >0 = hit
+        ),
+    )
+    resp = await client.generate(RenderContext())
+    assert resp.cache_hit is True
+    assert resp.usage.cached_tokens == 200
+
+
+@pytest.mark.asyncio
+async def test_disabled_policy_omits_cache_control(monkeypatch: pytest.MonkeyPatch):
+    client, fake = _make_client(monkeypatch)
+    await client.generate(RenderContext(), cache_policy=CachePolicy(enabled=False))
+    call_kwargs = fake.messages.create.call_args.kwargs
+    system = call_kwargs.get("system")
+    # cache_policy.enabled=False → cache_control marker 미부착
+    if isinstance(system, list):
+        for block in system:
+            assert "cache_control" not in block
+
+
+def test_count_tokens_slot_returns_int(monkeypatch: pytest.MonkeyPatch):
+    client, _ = _make_client(monkeypatch)
+    n = client.count_tokens("hello world")
+    assert isinstance(n, int)
+    assert n >= 0
+```
+
+- [ ] **Step 3: RED 확인**
+
+```bash
+uv run pytest tests/test_anthropic_adapter.py -v
+```
+
+Expected: FAIL — module not found.
+
+- [ ] **Step 4: 최소 구현**
+
+```python
+# best_agent_base/llm/anthropic.py
+"""Anthropic 어댑터 — anthropic SDK 직접, cache_control ephemeral marker 통합 (FR-7, D7).
+
+system 메시지의 마지막 text block 에 `{"type": "text", "text": ..., "cache_control": {"type": "ephemeral"}}`
+부착으로 server-side prompt caching 트리거. CachePolicy.enabled=False 면 marker 미부착.
+SDK 예외는 그대로 전파 (D6).
+"""
+
+from __future__ import annotations
+
+import os
+
+from anthropic import AsyncAnthropic
+
+from best_agent_base.llm.cache_metrics import CacheEvent, CacheMetrics
+from best_agent_base.llm.cache_policy import CachePolicy
+from best_agent_base.llm.client import LLMResponse, TokenUsage
+from best_agent_base.llm.messages import build_gemini_messages  # boundary split 재사용
+from best_agent_base.prompts.render import RenderContext, get_static_hash
+
+
+def _build_anthropic_client() -> AsyncAnthropic:
+    """AsyncAnthropic SDK Client. 테스트에서 monkeypatch 가능."""
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY 환경 변수가 설정되어 있지 않습니다.")
+    return AsyncAnthropic(api_key=api_key)
+
+
+class AnthropicClient:
+    """LLMClient 적합 Anthropic 참조 구현.
+
+    캐싱: system 메시지의 마지막 text block 에 cache_control ephemeral marker 부착 (D7).
+    server-side hash 매칭으로 자동 hit. 적중 시 응답의 usage.cache_read_input_tokens > 0.
+    """
+
+    def __init__(
+        self,
+        *,
+        model: str = "claude-sonnet-4-5-20250929",
+        max_tokens: int = 4096,
+        metrics: CacheMetrics | None = None,
+    ) -> None:
+        self._model = model
+        self._max_tokens = max_tokens
+        self._metrics = metrics if metrics is not None else CacheMetrics()
+        self._sdk = _build_anthropic_client()
+        self._last_hash: str | None = None
+
+    async def generate(
+        self,
+        ctx: RenderContext,
+        *,
+        cache_policy: CachePolicy | None = None,
+    ) -> LLMResponse:
+        policy = cache_policy if cache_policy is not None else CachePolicy()
+        static_text, dynamic_text = build_gemini_messages(ctx)
+        key = get_static_hash(ctx)
+
+        if self._last_hash is not None and self._last_hash != key:
+            self._metrics.emit(CacheEvent.HASH_CHANGE, key)
+        self._last_hash = key
+
+        # system 메시지 구성 — cache_policy.enabled 면 마지막 block 에 cache_control 부착
+        system_block: dict = {"type": "text", "text": static_text}
+        if policy.enabled and not policy.force_invalidate:
+            system_block["cache_control"] = {"type": "ephemeral"}
+
+        result = await self._sdk.messages.create(
+            model=self._model,
+            max_tokens=self._max_tokens,
+            system=[system_block],
+            messages=[{"role": "user", "content": dynamic_text or " "}],
+        )
+
+        usage_meta = getattr(result, "usage", None)
+        cache_read = getattr(usage_meta, "cache_read_input_tokens", 0) or 0
+        cache_creation = getattr(usage_meta, "cache_creation_input_tokens", 0) or 0
+        cache_hit = cache_read > 0
+
+        # 메트릭 emit
+        if policy.enabled:
+            self._metrics.emit(CacheEvent.HIT if cache_hit else CacheEvent.MISS, key)
+
+        # 응답 텍스트 추출 (content[0].text 가정 — context7 검증 시 다를 수 있음)
+        text = ""
+        content = getattr(result, "content", None)
+        if content and len(content) > 0:
+            first = content[0]
+            text = getattr(first, "text", "") or ""
+
+        usage = TokenUsage(
+            input_tokens=getattr(usage_meta, "input_tokens", 0) or 0,
+            output_tokens=getattr(usage_meta, "output_tokens", 0) or 0,
+            cached_tokens=cache_read or cache_creation,
+        )
+
+        return LLMResponse(
+            text=text,
+            static_hash=key,
+            cache_hit=cache_hit,
+            usage=usage,
+        )
+
+    def count_tokens(self, text: str) -> int:
+        # Phase 9 본격 — 현재는 conservative 추정
+        return int(len(text.split()) * 1.3)
+```
+
+- [ ] **Step 5: GREEN 확인**
+
+```bash
+uv run pytest tests/test_anthropic_adapter.py -v
+```
+
+Expected: 5 PASS.
+
+- [ ] **Step 6: 전체 회귀 + ruff**
+
+```bash
+uv run pytest -v 2>&1 | tail -10 && uv run ruff check .
+```
+
+Expected: 모든 GREEN, ruff clean.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add pyproject.toml uv.lock best_agent_base/llm/anthropic.py tests/test_anthropic_adapter.py
+git commit -m "feat(llm): add AnthropicClient with cache_control marker (Phase 2 Task 6.5)"
+```
+
+---
+
 ### Task 7: NFR invariant 확장 (test_init_purity + test_no_domain_vocab)
 
 **Files:**
@@ -1102,6 +1375,7 @@ tech-design §6 R-1..6 매핑 — 각 위험을 구현 시 코드 한 줄 한 �
 - `best_agent_base/llm/gemini.py:GeminiClient.generate` HASH_CHANGE emit (Task 6) — **side-effect**: `static` 섹션에 마커 누적 시 hash 변동 → 캐시 자동 무효화 (R-4). **mitigation**: 의도된 동작, `CacheEvent.HASH_CHANGE` emit 으로 도메인 가시성 제공. test_cache_metrics.py::test_stats_counter 가 HASH_CHANGE 이벤트 카운트를 검증.
 - `best_agent_base/llm/cache_metrics.py:CacheMetrics.emit` (Task 3) — **perf**: oversized observer 가 동기 callable 이라 호출 path 지연 가능 (R-5). **mitigation**: 베이스 정책 명문화 — observer 는 가벼워야 함. 도메인 인터페이스 가이드 (`docs/interfaces/phase-2-llm-client.md`) 의 §확장 포인트 + 금지 사항에 명시. 무거운 backend 는 도메인이 자기 안에서 task 분리.
 - `best_agent_base/llm/cache_policy.py:CachePolicy` (Task 2) — **breaking**: 향후 필드 추가 시 frozen 모델 호환성 (R-6). **mitigation**: Pydantic `Field(default=...)` 로 모든 신규 필드는 default 보장. 도메인이 자기 정책 클래스 만들고 싶으면 별도 BaseModel + 변환 함수 (베이스가 강제 안 함).
+- `best_agent_base/llm/anthropic.py:AnthropicClient.generate` (Task 6.5) — **side-effect**: `cache_control: {"type": "ephemeral"}` marker 가 system 메시지의 마지막 text block 에 정확히 부착돼야 server-side cache 적중 (R-7). marker 위치 흔들리거나 system text 미세 변동 시 자동 cache miss. **mitigation**: marker 부착 위치 single point (last text block) 으로 코드 fix. Phase 1 `get_static_hash` 결정성 (NFR-3) 가 동일 ctx → 동일 system_text 보장. test_anthropic_adapter.py::test_first_call_attaches_cache_control_marker 가 marker 위치/구조 단위 회귀 잡음.
 
 ## 3. 롤백 전략
 
@@ -1121,6 +1395,13 @@ tech-design §6 R-1..6 매핑 — 각 위험을 구현 시 코드 한 줄 한 �
 - **무엇이**: phase-2-llm-client-implementation-plan.md 전체 (§1 Task 1..9 + §2 위험 코드 지점 7건 + §3 롤백 전략) + Task 9 Step 2 명확화
 - **영향범위**: 없음 (최초 생성). 후속 영향 = `/execute-plan` 실행 시 9 task 순차 commit (Task 1 deps → Task 2 CachePolicy → Task 3 CacheMetrics → Task 4 LLMClient → Task 5 messages → Task 6 GeminiClient + race lock → Task 7 NFR invariant 확장 → Task 8 main.py 마이그레이션 → Task 9 conftest + 최종 GREEN). 외부 영향 = `pyproject.toml` deps 교체 (`langchain*` → `google-genai`), `main.py` 재작성 (langgraph demo 제거).
 - **연관 항목**: CH-20260503-001 (PRD), CH-20260503-002 (tech-design)
+
+### [2026-05-03 20:35] [구현계획서-수정]
+- **id**: CH-20260503-012
+- **이유**: PRD CH-20260503-010 (FR-7 신규) + tech-design CH-20260503-011 (D7 + R-7 + §2/§7 cascade) 의 plan-level cascade 갱신. Task 6.5 (AnthropicClient 어댑터 + cache_control 통합) 신규 추가. §2 위험 코드 지점에 R-7 항목 추가. context7 사용 룰 명시 (anthropic SDK 최신 시그니처 검증).
+- **무엇이**: §1 단계별 작업 — Task 6 다음에 Task 6.5 (AnthropicClient + cache_control marker + 5 cases test + deps 추가, 7 steps) 신규. §2 위험 코드 지점 — R-7 (anthropic.py marker 위치 위험 + Phase 1 결정성 mitigation) 항목 추가. context7 사용 룰 (Task 6.5 implementer 의 5개 SDK 시그니처 사전 확인) 명시.
+- **영향범위**: Task 7 (NFR vocab scan llm/) 가 anthropic.py 도 자동 cover (별도 변경 불필요). Task 9 의 AC 매트릭스에 AC-11 / AC-12 추가 필요 (후속 task 진행 시점에 self-review 단계에서 보완). pyproject.toml deps 는 Task 1 의 commit 에 anthropic 미포함 — Task 6.5 에서 별도 commit 으로 추가.
+- **연관 항목**: CH-20260503-003 (plan 최초), CH-20260503-010 (PRD FR-7 추가), CH-20260503-011 (tech-design D7 + R-7 cascade)
 
 ### [2026-05-03 19:52] [코드-수정] (task: Task 1 — deps 교체)
 - **id**: CH-20260503-004
