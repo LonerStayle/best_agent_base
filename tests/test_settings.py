@@ -82,11 +82,14 @@ def test_dotenv_file_loaded(tmp_path, monkeypatch):
 def test_no_module_level_instance(monkeypatch):
     """T4: D-12 lazy 인스턴스화 룰 — 모듈 import 만으로는 Settings() 가 호출되지 않아야 한다.
 
-    모듈 import 자체가 GOOGLE_API_KEY 누락 환경에서 깨지지 않는지 확인.
+    1차 가드: GOOGLE_API_KEY 누락 환경에서 import 자체가 깨지지 않는다.
+        (모듈 레벨 Settings() 가 있으면 ValidationError 로 import 실패함.)
+    2차 가드: 어떤 이름이든 모듈 글로벌에 Settings 인스턴스가 노출돼 있으면 안 된다.
+        (네이밍 컨벤션과 무관하게 isinstance 로 검출 — code-review T7 의 Important fix.)
     """
     mod = _fresh_import(monkeypatch, env={"GOOGLE_API_KEY": None}, cwd=Path("/tmp"))
-    # import 자체는 성공해야 함 (모듈 레벨 글로벌 인스턴스 없음)
+    # 1차 가드
     assert hasattr(mod, "Settings")
-    # 모듈 attribute 에 settings 인스턴스가 글로벌로 존재하지 않음
-    candidates = [name for name in dir(mod) if name.lower() in {"settings_instance", "config", "settings_global"}]
-    assert candidates == [], f"모듈 레벨 글로벌 인스턴스 발견: {candidates}"
+    # 2차 가드
+    instances = [name for name, val in vars(mod).items() if isinstance(val, mod.Settings)]
+    assert instances == [], f"D-12 위반: 모듈 레벨 Settings 인스턴스 발견: {instances}"
