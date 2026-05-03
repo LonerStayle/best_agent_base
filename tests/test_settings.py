@@ -23,7 +23,15 @@ def _fresh_import(monkeypatch, env: dict[str, str | None], cwd: Path | None = No
     - 기존 환경변수 모두 제거 후 env 로 덮어씀 (None 인 키는 명시적 삭제)
     - sys.modules 에서 config 제거 → reload
     """
-    for key in ("GOOGLE_API_KEY", "LOG_LEVEL", "DATABASE_URL", "AGENT_STATE_DIR", "REDIS_URL", "BLOB_STORE_URL"):
+    managed_keys = (
+        "GOOGLE_API_KEY",
+        "LOG_LEVEL",
+        "DATABASE_URL",
+        "AGENT_STATE_DIR",
+        "REDIS_URL",
+        "BLOB_STORE_URL",
+    )
+    for key in managed_keys:
         monkeypatch.delenv(key, raising=False)
     for k, v in env.items():
         if v is None:
