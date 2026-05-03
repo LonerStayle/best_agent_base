@@ -1359,3 +1359,121 @@ tech-design §6 R-1..6 매핑 — 각 위험을 구현 시 코드 한 줄 한 �
   ```
 - **검증**: `uv run pytest tests/test_cache_metrics.py -v` → 5 passed (RED→GREEN 사이클 완료). `uv run pytest -q` → 81 passed (전체 무회귀).
 - **연관 항목**: CH-20260503-003 (구현계획서 — Task 3 정의), CH-20260503-005 (Task 2 CachePolicy — 같은 `best_agent_base.llm` 패키지 신규 public API 라인업)
+
+### [2026-05-03 20:42] [코드-수정] (task: Task 4 — LLMClient Protocol + LLMResponse + TokenUsage)
+- **id**: CH-20260503-007
+- **이유**: D2 결정 (B-thin — `LLMClient` Protocol 얇게, `generate` + `count_tokens` 2 메서드만; 스트리밍/도구 바인딩/wide protocol 기각) 의 구현. FR-1 (provider-agnostic LLM 호출 슬롯) / AC-1 (Protocol 정의 + 신규 클래스가 `isinstance` 통과) 충족. AC-2 (GeminiClient 적합성) 는 Task 6 에서 검증. D6 (SDK 예외 그대로 전파, 에러 envelope 안 박음) 의 영향으로 `LLMResponse` 는 text + static_hash + cache_hit + usage 4 필드만. NFR-3 (`static_hash` 결정성) 는 Phase 1 `get_static_hash(ctx)` 가 source of truth — 본 모듈은 슬롯만 노출하고 hash 계산은 안 함.
+- **무엇이**: best_agent_base/llm/client.py (신규), tests/test_llm_client_protocol.py (신규 — 4 cases)
+- **영향범위**: `best_agent_base/llm/client.py` 신규 모듈 (~46 LOC) — `TokenUsage` (frozen, input/output/cached_tokens), `LLMResponse` (frozen, text/static_hash/cache_hit/usage), `LLMClient` (`@runtime_checkable Protocol`, `generate` async + `count_tokens` 동기). public API = 3 symbol 추가. `tests/test_llm_client_protocol.py` 신규 (~55 LOC, 4 tests). 기존 81 테스트 무영향 — 전체 85 passed. 후속 영향 = Task 5 의 `build_gemini_messages` 가 `RenderContext` → Gemini contents 변환을 담당하고, Task 6 의 `GeminiClient` 가 본 Protocol 을 구체 구현 (CachedContent + race lock + CacheMetrics emit). 도메인 (예: best_agent_invest) 는 본 Protocol 에 의존하여 mock/fake LLM 을 주입할 수 있음.
+- **위험 카테고리**: breaking — 신규 public Protocol (`LLMClient`) 이 도메인 implementer 의 contract 가 됨. 향후 `generate` 시그니처 (positional `ctx`, keyword-only `cache_policy`) 또는 `count_tokens` 시그니처 변경 시 모든 도메인 구현체가 깨짐. 본 Phase 의 의도된 lock-in — B-thin 결정으로 **현재 시점에 contract 를 좁게 굳혀** 미래 wide protocol 유혹을 차단. 스트리밍/도구 바인딩이 필요해지면 별도 Protocol (예: `StreamingLLMClient`) 로 확장하여 본 Protocol 을 깨지 않는 방향이 디폴트.
+- **세부 변경 (2건)**:
+  - `best_agent_base/llm/client.py` — 신규 (`TokenUsage` BaseModel frozen, `LLMResponse` BaseModel frozen, `LLMClient` `@runtime_checkable Protocol` with `async generate(ctx, *, cache_policy=None) -> LLMResponse` and `count_tokens(text) -> int`)
+  - `tests/test_llm_client_protocol.py` — 신규 4 cases (token_usage_frozen / llm_response_fields / protocol_runtime_checkable_compliant / protocol_runtime_checkable_noncompliant)
+- **변경 전 코드**: 없음 — 신규 모듈
+- **변경 후 코드** (per file)
+  ```python
+  # file: best_agent_base/llm/client.py
+  """LLMClient Protocol + LLMResponse + TokenUsage (FR-1, D2 B-thin).
+
+  얇은 Protocol — generate (async) + count_tokens (슬롯) 두 메서드만.
+  스트리밍·도구 바인딩·에러 envelope 는 후속 Phase. (PRD §5 OOS-3..6)
+  """
+
+  from __future__ import annotations
+
+  from typing import Protocol, runtime_checkable
+
+  from pydantic import BaseModel, ConfigDict
+
+  from best_agent_base.llm.cache_policy import CachePolicy
+  from best_agent_base.prompts.render import RenderContext
+
+
+  class TokenUsage(BaseModel):
+      model_config = ConfigDict(frozen=True)
+      input_tokens: int
+      output_tokens: int
+      cached_tokens: int = 0
+
+
+  class LLMResponse(BaseModel):
+      model_config = ConfigDict(frozen=True)
+      text: str
+      static_hash: str
+      cache_hit: bool
+      usage: TokenUsage
+
+
+  @runtime_checkable
+  class LLMClient(Protocol):
+      """Provider-agnostic LLM 호출 슬롯 (B-thin)."""
+
+      async def generate(
+          self,
+          ctx: RenderContext,
+          *,
+          cache_policy: CachePolicy | None = None,
+      ) -> LLMResponse: ...
+
+      def count_tokens(self, text: str) -> int: ...
+  ```
+  ```python
+  # file: tests/test_llm_client_protocol.py
+  """LLMClient Protocol runtime_checkable 검증 (FR-1, AC-1)."""
+
+  from __future__ import annotations
+
+  from best_agent_base.llm.cache_policy import CachePolicy
+  from best_agent_base.llm.client import LLMClient, LLMResponse, TokenUsage
+  from best_agent_base.prompts.render import RenderContext
+
+
+  def test_token_usage_frozen():
+      u = TokenUsage(input_tokens=10, output_tokens=5)
+      assert u.cached_tokens == 0
+      import pytest
+      from pydantic import ValidationError
+      with pytest.raises(ValidationError):
+          u.input_tokens = 99  # type: ignore[misc]
+
+
+  def test_llm_response_fields():
+      r = LLMResponse(
+          text="hi",
+          static_hash="abc",
+          cache_hit=False,
+          usage=TokenUsage(input_tokens=10, output_tokens=5),
+      )
+      assert r.text == "hi"
+      assert r.static_hash == "abc"
+      assert r.cache_hit is False
+      assert r.usage.input_tokens == 10
+
+
+  def test_protocol_runtime_checkable_compliant():
+      class Compliant:
+          async def generate(
+              self, ctx: RenderContext, *, cache_policy: CachePolicy | None = None
+          ) -> LLMResponse:
+              return LLMResponse(
+                  text="x",
+                  static_hash="x",
+                  cache_hit=False,
+                  usage=TokenUsage(input_tokens=0, output_tokens=0),
+              )
+
+          def count_tokens(self, text: str) -> int:
+              return len(text)
+
+      assert isinstance(Compliant(), LLMClient)
+
+
+  def test_protocol_runtime_checkable_noncompliant():
+      class Noncompliant:
+          # generate / count_tokens 둘 다 없음
+          pass
+
+      assert not isinstance(Noncompliant(), LLMClient)
+  ```
+- **검증**: `uv run pytest tests/test_llm_client_protocol.py -v` → 4 passed (RED→GREEN 사이클 완료). `uv run pytest -q` → 85 passed (전체 무회귀, 81 → 85).
+- **연관 항목**: CH-20260503-003 (구현계획서 — Task 4 정의), CH-20260503-005 (Task 2 CachePolicy — `cache_policy: CachePolicy | None = None` 파라미터로 본 Protocol 시그니처에 직접 등장), CH-20260503-006 (Task 3 CacheMetrics — Task 6 GeminiClient 가 본 Protocol 구현 시 함께 통합)
