@@ -1123,3 +1123,22 @@ git commit -m "chore(prompts): final regression + ruff fixes (Phase 1 Task 9)"
 - **무엇이**: phase-1-prompts-implementation-plan.md 전체 (Task 1..9 — sections/boundary/registry/render/cache_slot/static_stability/no_domain_vocab/init_purity/회귀, §2 위험 7개, §3 롤백)
 - **영향범위**: 없음 (최초 생성)
 - **연관 항목**: CH-20260503-001 (PRD), CH-20260503-002 (개발방향)
+
+### [2026-05-03 13:00] [코드-수정]
+- **id**: CH-20260503-004
+- **이유**: Phase 1 — 9 task subagent-driven 실행 완료. final code review APPROVED (70/70 tests, ruff clean, all FR/NFR/AC mapped, R-1..R-7 mitigated).
+- **무엇이**:
+  - `best_agent_base/prompts/sections.py` — `PromptSection(Protocol, runtime_checkable)` + 7 베이스 섹션 인스턴스 + `BASE_SECTIONS`
+  - `best_agent_base/prompts/boundary.py` — `SYSTEM_PROMPT_DYNAMIC_BOUNDARY` 상수 + `DangerousUncached(BaseModel frozen, reason min_length=1)` + `dangerous_uncached(*, name, content, reason)` 헬퍼
+  - `best_agent_base/prompts/registry.py` — `SectionRegistry` 싱글톤 + `register/get/all_sections`, 모듈 로딩 시 7 베이스 자동 등록
+  - `best_agent_base/prompts/render.py` — `RenderContext(BaseModel frozen)` + `render(ctx)` (정적 7섹션 + BOUNDARY + 동적부) + `_render_static`/`_render_dynamic` (마커 충돌 ValueError 가드, R-5) + `get_static_hash(ctx)` (sha256[:16])
+  - 11 commits (`c75d906` ~ `f7515c7`): Task 1-9 + Task 1·4 nit fixes + Task 9 ruff format pass
+  - 신규 8 test 파일 + 2 review pass nit fix → 41 신규 tests (29 → 70).
+- **영향범위**: `best_agent_base/prompts/` 전체 (이전 빈 docstring-only 패키지). 신규 호출 사이트 0 (production import 사이트 없음 — Phase 2+ 부터 사용). Phase 0 자산 무수정.
+- **위험 카테고리**: 없음 (신규 모듈 + 호출 사이트 0). R-5 (BOUNDARY 우연 충돌) 만 implementation 시 ValueError 가드로 안전 처리.
+- **연관 항목**: CH-20260503-003 (plan)
+- **변경 전 코드** (`best_agent_base/prompts/__init__.py` 만 존재, docstring-only)
+  ```python
+  """System prompt static/dynamic separation (Phase 1)."""
+  ```
+- **변경 후 코드** (4 src 파일 신규 생성 — 위 "무엇이" 참조. `__init__.py` 는 docstring-only 유지 D-13)
