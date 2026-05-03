@@ -91,6 +91,6 @@ best_agent_base/
 
 ## Status
 
-🟡 **Phase 0 (프로젝트 골격) 진입 직전.**
+🟢 **Phase 0 (프로젝트 골격) 완료** (AC-1 ~ AC-13 GREEN, tag `phase-0-skeleton-done`).
 
-진척 상황은 [`TODO.md`](./TODO.md)의 체크박스로 추적.
+다음: Phase 1 (시스템 프롬프트 정적/동적 분리). 진척 상황은 [`TODO.md`](./TODO.md)의 체크박스로 추적.

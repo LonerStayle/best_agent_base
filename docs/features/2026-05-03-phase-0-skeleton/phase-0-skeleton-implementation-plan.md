@@ -851,3 +851,79 @@ git reset --soft HEAD~1
 - **영향범위**: phase-0-skeleton-tech-design.md §5 결정·§6 위험·§7 테스트 와 정합. 후속 `/execute-plan` (subagent-driven-development 또는 executing-plans) 의 입력. 본 Phase 의 모든 코드/설정/문서 변경이 본 plan 의 Task 안에서 수행될 예정.
 - **연관 항목**: CH-20260503-003 (tech-design 최초 작성), CH-20260503-002 (PRD cascade — Postgres/2-Tier/docker-compose), CH-20260503-001 (PRD 최초 작성)
 - **verify 결과**: A. Consistency 31 mapped / 0 gaps / 0 conflicts. C. Impact 13 파일·11 위험 모두 §2 매핑 + mitigation step 구체화. 자동 테스트 17 cases (smoke 11 + settings 6) + Docker 수동 검증 3 ACs.
+
+### [2026-05-03 13:00] [코드-수정]
+- **id**: CH-20260503-005
+- **이유**: Task 1·2 implementation — base runtime + dev deps via `uv add`. Subagent-driven-development workflow.
+- **무엇이**:
+  - Task 1 (commit `453e0b7`): 7 base runtime deps 추가 (alembic, asyncpg, fastapi, pydantic-settings, sqlalchemy[asyncio], tiktoken, uvicorn)
+  - Task 2 (commit `e83735f`): 4 dev deps 추가 (aiosqlite, pytest, pytest-asyncio, ruff). 본 plan 기재 "expected pytest 8.x" 와 달리 **pytest 9.0.3** 으로 자동 해석됨 (pytest-asyncio 1.3.0 이 pytest 9 명시 지원). 기능 영향 없음, downstream task 진행 시 호환성 재확인 권장.
+- **위험 카테고리**: breaking (R-1: 의존성 충돌 가능성 — 둘 다 import smoke + 단위 도구 버전 호출(`pytest --version`, `ruff --version`) 통과로 mitigation 검증)
+- **변경 전 코드** (`pyproject.toml`)
+  ```toml
+  dependencies = [
+      "langchain>=1.2.17",
+      "langchain-google-genai>=4.2.2",
+      "langgraph>=1.1.10",
+      "python-dotenv>=1.2.2",
+  ]
+  ```
+- **변경 후 코드** (`pyproject.toml`)
+  ```toml
+  dependencies = [
+      "alembic>=1.18.4",
+      "asyncpg>=0.31.0",
+      "fastapi>=0.136.1",
+      "langchain>=1.2.17",
+      "langchain-google-genai>=4.2.2",
+      "langgraph>=1.1.10",
+      "pydantic-settings>=2.14.0",
+      "python-dotenv>=1.2.2",
+      "sqlalchemy[asyncio]>=2.0.49",
+      "tiktoken>=0.12.0",
+      "uvicorn>=0.46.0",
+  ]
+
+  [dependency-groups]
+  dev = [
+      "aiosqlite>=0.22.1",
+      "pytest>=9.0.3",
+      "pytest-asyncio>=1.3.0",
+      "ruff>=0.15.12",
+  ]
+  ```
+- **영향범위**: `pyproject.toml` + `uv.lock` 만. 다른 파일 무. spec/quality 양쪽 review 통과.
+- **연관 항목**: CH-20260503-004 (plan 최초 작성)
+
+### [2026-05-03 15:30] [코드-수정]
+- **id**: CH-20260503-006
+- **이유**: Task 3 ~ Task 12 + 부수 fix 3개 implementation 완료. Phase 0 전체 GREEN. Subagent-driven-development workflow.
+- **무엇이** (commit 별):
+  - **Task 3** (`5c967c6`): `pyproject.toml [tool.ruff]` + `[tool.ruff.lint]` (line-length=100, py312, E/F/I)
+  - **Task 4** (`a20e0ae`): `pyproject.toml [tool.pytest.ini_options]` (testpaths=tests, asyncio_mode=auto)
+  - **Task 5** (`329ef8a`): `tests/__init__.py` + `tests/test_smoke.py` (RED — 10 failed / 1 passed)
+  - **Task 6** (`a51931c`): 9 신규 파일 — 8 서브패키지 `__init__.py` + `best_agent_base/config.py` placeholder. Smoke GREEN (11 passed)
+  - **Task 6.5 fix** (`b1a8e86`): D-13 violation 정렬 — `best_agent_base/__init__.py`/`llm/__init__.py` 의 편의 import 제거 (docstring-only), `main.py` import 경로 갱신 (`best_agent_base.llm.gemini` 직접 사용). T6 코드 리뷰어가 발견.
+  - **Task 7** (`bdc3faa`): `tests/test_settings.py` 6 cases (RED — Settings 미정의)
+  - **Task 7 fix** (`685ceee`): T4 의 lazy 룰 검증을 hardcoded name list → `isinstance(v, mod.Settings)` scan 으로 일반화. T7 코드 리뷰어 Important 사항.
+  - **Task 8** (`93f1ece`): `best_agent_base/config.py` 본체 — `Settings(BaseSettings)` 6 필드 (google_api_key 필수, log_level/database_url/agent_state_dir 디폴트, redis_url/blob_store_url Optional). GREEN (17/17 통과)
+  - **T8 follow-up style fix** (`7233e6c`): `tests/test_settings.py:26` E501 (line >100) — env 키 튜플 multi-line 분리.
+  - **Task 9** (`db40895`): `.env.example` 갱신 (호스트 5435, REDIS/BLOB Optional placeholder, Korean comments)
+  - **Task 10** (`5e243a4`): `docker-compose.yml` 생성 — postgres:16-alpine (5435:5432) + redis:7-alpine (6379:6379), healthchecks, named volumes. **Live 검증**: 둘 다 `Up (healthy)`, `SELECT 1` ok, `PING → PONG` ok.
+  - **Task 11** (`68c91a9`): `README.md` Setup 섹션 4 단계 (uv sync / .env / docker compose / verification) + 5435 포트 노트 + `docs/local-dev-setup.md` 링크.
+  - **Task 12** (`5a844ae` 빈 마커): AC-1 ~ AC-13 전수 검증 13/13 GREEN.
+- **위험 카테고리**: 다중 (R-1, R-2, R-4, R-5, R-7~R-11) — 각 task 의 spec/quality 리뷰 + AC 자동 검증으로 mitigation 검증 완료.
+- **영향범위**: 13 파일 (신규 11 + 수정 4 — `pyproject.toml` 4회, `.env.example` 1회, `README.md` 1회, `main.py` 1회 [import 한 줄], `best_agent_base/__init__.py` 1회 [docstring 화]). `tests/test_smoke.py` 11 cases + `tests/test_settings.py` 6 cases = 17 cases 자동 회귀 가드. ruff/pytest 모든 단계 exit 0. Docker 인프라 live 동작.
+- **Phase 0 → Phase 1+ 인계**:
+  - 9 서브패키지 골격 + 4 워크플로우 인프라 (docker, env, lint, test) 즉시 사용 가능.
+  - `Settings` 진입점으로 모든 후속 Phase 의 환경 통합.
+  - 2-Tier 저장 모델 슬롯 (Settings 의 `redis_url`/`blob_store_url` Optional) 준비됨, 본체는 Phase 9.
+- **Final code review (전체)**: APPROVED-TO-MERGE. 6 개 Phase 1+ grooming 노트:
+  1. README status 라벨 갱신 ("Phase 0 진입 직전" → "Phase 0 완료")
+  2. `main.py` 의 `load_dotenv()` 직접 호출 → `Settings()` 진입점 사용으로 마이그레이션 (FR-3 단일 진입점 원칙 강화)
+  3. `tests/conftest.py` 도입 (Phase 1 부터 공통 async fixture 필요 시)
+  4. docker container 이름 (`bab_*`) 충돌 정책 재고 (현재 R-11 로 acceptance)
+  5. `Settings.log_level` 을 `Literal[...]` 로 강화
+  6. `Settings.agent_state_dir` 을 `Path` 로 정규화 (Phase 9 캐시/블롭 본체에서)
+- **연관 항목**: CH-20260503-005 (T1·T2), CH-20260503-004 (plan 최초), CH-20260503-003 (tech-design), CH-20260503-002 (PRD cascade), CH-20260503-001 (PRD 최초)
+- **태그**: `phase-0-skeleton-done` → commit `68c91a9` (T11 README), 마커 `5a844ae` (Phase 0 complete empty commit)
