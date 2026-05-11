@@ -7,8 +7,10 @@ from datetime import date, timedelta
 
 from dotenv import load_dotenv
 
-from best_agent_base.attachments.builtins import date_change   # auto-register  # noqa: F401
-from best_agent_base.attachments.builtins import todo_reminder  # auto-register  # noqa: F401
+from best_agent_base.attachments.builtins import (
+    date_change,  # auto-register  # noqa: F401
+    todo_reminder,  # auto-register  # noqa: F401
+)
 from best_agent_base.attachments.integrate import call_with_attachments
 from best_agent_base.llm.gemini import GeminiClient
 from best_agent_base.prompts.render import RenderContext

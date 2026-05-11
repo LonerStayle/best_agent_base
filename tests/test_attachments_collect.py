@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from best_agent_base.attachments.collect import collect_attachments
@@ -64,9 +62,7 @@ async def test_is_subagent_skips_main_thread_group():
     b = _Fake("b", AttachmentGroup.ALL_THREAD, "kept")
     attachment_registry.register("a", a)
     attachment_registry.register("b", b)
-    msgs = await collect_attachments(
-        RenderContext(is_subagent=True), user_input="hi"
-    )
+    await collect_attachments(RenderContext(is_subagent=True), user_input="hi")
     assert a.call_count == 0
     assert b.call_count == 1
 

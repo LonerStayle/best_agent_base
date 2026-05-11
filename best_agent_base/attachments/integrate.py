@@ -1,6 +1,7 @@
 """call_with_attachments helper β (D3) — Phase 2 LLMClient 통합.
 
-flow: collect_attachments → ctx.messages 합성 (기존 + user_input + 어태치먼트) → client.generate(new_ctx)
+flow: collect_attachments → ctx.messages 합성 (prior + user_input + attachments)
+      → client.generate(new_ctx)
 
 Phase 2 LLMClient.generate(ctx, *, cache_policy) 시그니처 무변경 보존 (B-thin).
 ReAct 루프 (Phase 5+) 가 본격 통합 시 본 helper 흡수.

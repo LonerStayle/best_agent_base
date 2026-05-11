@@ -46,7 +46,10 @@ def test_message_user_with_text_block():
 
 def test_message_discriminator_routes_correct_block_type():
     m = Message.model_validate(
-        {"role": "assistant", "content": [{"type": "tool_use", "id": "x", "name": "y", "input": {}}]}
+        {
+            "role": "assistant",
+            "content": [{"type": "tool_use", "id": "x", "name": "y", "input": {}}],
+        }
     )
     assert isinstance(m.content[0], ToolUseBlock)
 

@@ -3,7 +3,8 @@
 D4: <system-reminder> wrap 은 베이스 책임.
 D5: 단일 함수 + user_input=None 분기.
 D9: asyncio.wait(timeout=1.0, ALL_COMPLETED) + pending cancel + 개별 try/except → None.
-    spec 의 wait_for(gather) 는 타임아웃 시 부분 결과 손실 → wait() 로 변경 (test_timeout_drops_slow_keeps_fast 가 fast 결과 보존 요구).
+    spec 의 wait_for(gather) 는 타임아웃 시 부분 결과 손실 → wait() 로 변경
+    (test_timeout_drops_slow_keeps_fast 가 fast 결과 보존 요구).
 D10: ctx.is_subagent=True 시 MAIN_THREAD 자동 제외.
 
 CC `messages.ts:3098` wrap 형식 그대로.
@@ -46,7 +47,9 @@ async def _safe_build(att: Attachment, ctx: RenderContext) -> str | None:
         return None
 
 
-def _attachments_in(groups: Iterable[AttachmentGroup], tool_pool: frozenset[str]) -> list[Attachment]:
+def _attachments_in(
+    groups: Iterable[AttachmentGroup], tool_pool: frozenset[str]
+) -> list[Attachment]:
     """그룹별 어태치먼트 + 도구 풀 게이트 통과한 것만 반환 (FR-9)."""
     out: list[Attachment] = []
     for g in groups:

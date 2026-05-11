@@ -37,4 +37,7 @@ def test_all_in_group_filters():
     attachment_registry.register("b", b)
     attachment_registry.register("c", c)
     in_all_thread = list(attachment_registry.all_in_group(AttachmentGroup.ALL_THREAD))
-    assert {x.name for x in in_all_thread} == {"a", "c"}
+    names = {x.name for x in in_all_thread}
+    # subset — 베이스 디폴트 (date_change/todo_reminder) 도 ALL_THREAD 라 같이 잡힘
+    assert {"a", "c"} <= names
+    assert "b" not in names  # MAIN_THREAD 는 별도 그룹
