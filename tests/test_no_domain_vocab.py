@@ -13,8 +13,10 @@ import pytest
 PROJECT_ROOT = Path(__file__).parent.parent
 PROMPTS_DIR = PROJECT_ROOT / "best_agent_base" / "prompts"
 LLM_DIR = PROJECT_ROOT / "best_agent_base" / "llm"
+ATTACHMENTS_DIR = PROJECT_ROOT / "best_agent_base" / "attachments"
+MESSAGES_FILE = PROJECT_ROOT / "best_agent_base" / "messages.py"
 
-SCAN_DIRS: tuple[Path, ...] = (PROMPTS_DIR, LLM_DIR)
+SCAN_DIRS: tuple[Path, ...] = (PROMPTS_DIR, LLM_DIR, ATTACHMENTS_DIR)
 
 FORBIDDEN_TERMS: tuple[str, ...] = (
     # 코딩 도메인
@@ -43,6 +45,11 @@ def _scan(term: str, scan_dir: Path) -> list[Path]:
     return hits
 
 
+def _scan_file(term: str, file_path: Path) -> bool:
+    pattern = re.compile(rf"\b{re.escape(term)}\b", re.IGNORECASE)
+    return bool(pattern.search(file_path.read_text(encoding="utf-8")))
+
+
 @pytest.mark.parametrize("term", FORBIDDEN_TERMS)
 def test_prompts_module_free_of_domain_vocab(term):
     hits = _scan(term, PROMPTS_DIR)
@@ -61,11 +68,33 @@ def test_llm_module_free_of_domain_vocab(term):
     )
 
 
+@pytest.mark.parametrize("term", FORBIDDEN_TERMS)
+def test_attachments_module_free_of_domain_vocab(term):
+    hits = _scan(term, ATTACHMENTS_DIR)
+    assert not hits, (
+        f"forbidden domain term {term!r} found in base attachments module: "
+        f"{[str(h.relative_to(PROJECT_ROOT)) for h in hits]}"
+    )
+
+
+@pytest.mark.parametrize("term", FORBIDDEN_TERMS)
+def test_messages_file_free_of_domain_vocab(term):
+    assert not _scan_file(term, MESSAGES_FILE), (
+        f"forbidden domain term {term!r} found in messages.py"
+    )
+
+
 def test_prompts_dir_exists():
-    """디렉토리 자체가 존재해야 검증이 의미 있음."""
     assert PROMPTS_DIR.is_dir()
 
 
 def test_llm_dir_exists():
-    """디렉토리 자체가 존재해야 검증이 의미 있음."""
     assert LLM_DIR.is_dir()
+
+
+def test_attachments_dir_exists():
+    assert ATTACHMENTS_DIR.is_dir()
+
+
+def test_messages_file_exists():
+    assert MESSAGES_FILE.is_file()
