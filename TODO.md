@@ -1,5 +1,8 @@
 # best_agent_base — 마스터 TODO
 
+> **작업 원칙은 [`CLAUDE.md`](./CLAUDE.md) 에 분리.** 본 문서는 Phase 진행 계획·참조 자료 트리·산출물 룰·진행 파이프라인 전용.
+> CLAUDE.md 는 매 conversation 시작 시 자동 로드 → 설계 원칙 8가지 + 비교자료 사용 가이드라인을 모든 작업에 자동 적용.
+
 > ## 🎯 최종 목적
 > **Claude Code(TS·프론트엔드 CLI)의 하네스 기법을 파이썬 백엔드(FastAPI + SQLAlchemy)로 포팅한, 모든 에이전트 프로젝트의 Base 모듈을 만든다.**
 >
@@ -101,18 +104,10 @@
 
 ---
 
-## 🧭 설계 원칙 (모든 Phase에 관통)
+## 🧭 cross-cutting 원칙 — `CLAUDE.md` 에 분리
 
-CC 분석 문서에서 반복적으로 확인된 5가지 핵심 컨셉. 모든 모듈이 이 원칙을 만족하는지 매 Phase 끝에 점검.
-
-1. **정적/동적 분리 (Caching Boundary)** — 시스템 프롬프트·메시지 어디든 정적 부분은 캐시, 동적 부분은 매 턴 재계산. KV 캐시 적중률이 비용·지연의 핵심.
-2. **"안 만들기" 원칙** — 분류기, 라우터, 상태머신 만들지 말 것. 도구 description과 시스템 프롬프트가 분류 역할을 한다.
-3. **조용한 정규화 (Silent Normalization)** — 도구 입력 백필·정규화는 모델/사용자가 모르게 코드 레벨에서만.
-4. **3그룹/3레이어 병렬 분담** — 어태치먼트 수집(3그룹 `asyncio.gather`), 도구 설계(L1 공통규칙 / L2 description / L3 검증), 권한 판정(allow/ask/deny 3단계).
-5. **관찰→교정→재관찰** — 모델 실패 패턴은 `@[MODEL: <model> <yyyy-mm>]` 마커로 description·프롬프트에 기록·축적. 마커 자동 수집기로 회귀 추적. 프롬프트는 살아있는 튜닝 결과물.
-6. **에러는 모델 피드백** — 도구 실패를 throw 하지 않는다. `{ok: false, error, hint, retryable}` envelope 로 반환 → 모델이 다음 행동을 결정. 재시도/백오프는 루프 책임, 도구 자체는 멱등하게.
-7. **격리된 컨텍스트 (Subagent Isolation)** — 무거운 탐색·다중 후보 평가는 서브에이전트로 격리. 메인 컨텍스트엔 결과만 들어옴. mainThread/subThread 어태치먼트 차등 적용.
-8. **교체·확장 가능성 (Swappable & Extensible)** — 베이스가 제공하는 건 **인터페이스 + 디스패처 + 참조 구현 1개**. 도메인-특화 본체(분류기·collector·도구·메모리 백엔드 등)는 항상 **갈아끼울 수 있는 슬롯**으로. 모든 디스패처는 `register()` 패턴 — 도메인이 새 구현을 정의하고 등록만 하면 베이스 코드 0줄 수정 없이 동작 (Open/Closed). 베이스가 제공한 참조 구현은 등록 안 하면 그만 + 완전히 제거 가능. 베이스 안에 도메인 가정을 박지 않는다 (예: 코드 도메인 가정 금지).
+> **설계 원칙 8가지** 와 **비교자료 사용 가이드라인 (Claude Code vs Gemini CLI)** 은 [`CLAUDE.md`](./CLAUDE.md) 에 통합.
+> 매 conversation 자동 로드 → 모든 Phase / 작업 단계에 자동 적용. 별도 reference 불필요.
 
 ---
 
@@ -316,22 +311,34 @@ CC 분석 문서에서 반복적으로 확인된 5가지 핵심 컨셉. 모든 �
 
 ---
 
-## 🪝 Phase 3 — 어태치먼트 시스템 (사용자 입력 + ReAct 라운드 양 지점)
+## 🪝 Phase 3 — 어태치먼트 시스템 (사용자 입력 + ReAct 라운드 양 지점)  ✅ 완료 (main `4ed6ddf` 머지, 187/187 tests)
+
+> **산출물**: `docs/features/2026-05-04-phase-3-attachments/` (PRD CH-20260508-001 + tech-design CH-20260510-001 + impl-plan CH-20260511-001/002) / `docs/interfaces/phase-3-attachments.md` (공식 인터페이스 가이드 8섹션) / `notebooks/phase-3-attachments-demo.ipynb` (4부 데모)
+> **결과**: 16 task subagent-driven (5 wave-parallel + 메인 inline T16) 완료, 76 신규 tests (111 → 187), final code review APPROVED, ruff clean
+> **사용자 결정**: 베이스 디폴트 어태치먼트 2종 (`date_change`, `todo_reminder`) 본 Phase 범위에 포함. 이유 = 메커니즘 검증의 진정한 완성은 즉시 시연 가능한 구현체와 같이 (B 선택). 실제로 도메인-무관 어태치먼트만 베이스에 박힘 (NFR-1 도메인 중립성 보존).
 
 > **참조**: `attachment-system.md`, `첨부시스템-이중설계와-TodoWrite-응용비법.md`
 
-- [ ] `Attachment` 베이스 + `<system-reminder>` 자동 래핑
-- [ ] **이중 호출 지점** 구현
-  - [ ] 사용자 입력 시 (`processUserInput` 등가): `@-mention`, MCP/스킬 파싱
-  - [ ] 도구 라운드 후 (`react_loop` 내): 진행 상태 기반 첨부
-- [ ] **3그룹 병렬 수집** (`asyncio.gather`)
-  - [ ] userInputAttachments
-  - [ ] allThreadAttachments (백엔드 상태 기반: DB·세션·할일 등)
-  - [ ] mainThreadAttachments (메인 세션 한정 — 서브에이전트엔 X)
-- [ ] 조건부 생성 + null 필터링 (해당 없는 첨부는 토큰 낭비 금지)
-- [ ] assistant turn 카운터 (도구 라운드 ≠ 유저 턴) — 이후 todo nudge 기반
-- [ ] 백엔드 적합 첨부 종류 셀렉션 (initial set):
-  - `date_change`, `deferred_tools_delta`, `todo_reminder`, `db_state_summary`(신규), `recent_errors`(신규)
+- [x] `Attachment(Protocol, runtime_checkable)` 베이스 + `<system-reminder>` 자동 래핑 (`collect_attachments` 내부 책임, D4)
+- [x] **이중 호출 지점** 단일 함수 + `user_input=None` 분기 (D5)
+  - [x] user-turn entry: `collect_attachments(ctx, user_input="...")` 3그룹 모두 호출
+  - [x] in-loop: `collect_attachments(ctx, user_input=None)` USER_INPUT 그룹 자동 스킵
+- [x] **3그룹 병렬 수집** (`asyncio.wait(timeout=1.0, ALL_COMPLETED)` + cancel pending — D9 spec deviation: `wait_for(gather)` 부분 결과 손실 → `wait()` 로 변경)
+  - [x] `AttachmentGroup.USER_INPUT` (사용자 텍스트 의존)
+  - [x] `AttachmentGroup.ALL_THREAD` (메인·서브에이전트 모두)
+  - [x] `AttachmentGroup.MAIN_THREAD` (메인 대화 전용, `is_subagent=True` 시 자동 제외 — D10)
+- [x] 조건부 생성 + null 필터링 — `build()` 가 `None` 반환 시 자동 제외
+- [x] `count_turns_since` 헬퍼 (assistant turn 카운터, thinking 제외, R-8 mitigation)
+- [x] `smoosh_into_last_tool_result` 헬퍼 (in-loop reminder + tool_result 같은 user 메시지 내 두 블록, tool_call_id 보존, R-5)
+- [x] `register_tool_pool_gate` 슬롯 (predicate registry + OR 평가, D7) — 베이스에 도구 이름 박지 않음 (NFR-1)
+- [x] **베이스 디폴트 어태치먼트 2종** (`attachments/builtins/`):
+  - [x] `date_change` (자정 감지, ALL_THREAD)
+  - [x] `todo_reminder` (10 round 게이트 + counter + tool pool gate 통합, ALL_THREAD)
+- [x] `call_with_attachments` helper β (LLM 클라이언트 통합 흡수, D3) — Phase 2 LLMClient Protocol 시그니처 무변경 (B-thin 보존)
+- [x] `RenderContext` 슬롯 5개 추가 (`messages`, `todos`, `tool_pool`, `last_emit_date`, `is_subagent`) — 모두 디폴트 값 (R-6 backward compat, Phase 1/2 회귀 0건)
+- [x] **NFR-2 정적 캐시 안전 invariant 검증** — `tests/test_attachments_static_hash_invariant.py` (어태치먼트 등록·발화 전후 `get_static_hash` 동일)
+- [x] **공식 인터페이스 가이드** `docs/interfaces/phase-3-attachments.md` (8섹션, 사용 예시 7개, 위험 8개, Public API)
+- [x] **데모 노트북** `notebooks/phase-3-attachments-demo.ipynb` (4부 + 실습 4개)
 
 ---
 
@@ -356,7 +363,7 @@ CC 분석 문서에서 반복적으로 확인된 5가지 핵심 컨셉. 모든 �
 
 ## 🔄 Phase 5 — ReAct 루프 + 흐름 기반 도구 컨트롤
 
-> **참조**: `claude-code-research.md`, `에이전트-개발-인사이트_cc질의.md`, `tools_info/toolcalling-loop-prevention.md`
+> **참조**: `claude-code-research.md`, `에이전트-개발-인사이트_cc질의.md`, `tools_info/toolcalling-loop-prevention.md`, `/Users/goldenplanet/jinsup_space/CC/도구-병렬-스트리밍.md`, `/Users/goldenplanet/jinsup_space/CC/도구결과-가공-시스템.md` (도구 결과의 라이프사이클 11단계 — `mapToolResultToToolResultBlockParam` / `applyToolResultBudget` / `ContentReplacementState` frozen·fresh 구분 / persisted-output 래핑 / `is_error` 플래그 / FileRead 18% 중복 감지 등 — ReAct 루프가 도구 결과를 어떻게 모델에게 돌려주는지의 ground truth. Phase 9·10 에서 구현 본체로 들어오지만, Phase 5 에서 루프 인터페이스를 짜는 시점부터 이 가공 파이프라인 hook 자리를 미리 확보해야 후행 Phase 가 자연스럽게 얹힌다.), **`docs/research/gemini-vs-anthropic-tool-streaming.md`** (직접 측정 검증 — Gemini 는 `text → tool → STOP` 학습 prior 라 프롬프트로 못 뒤집힘 / Anthropic 은 `content_block_stop (tool_use)` 에서 eager dispatch 자동 가능 / 두 wire 를 통합 흡수하는 `StreamEvent` 추상 청사진 + adapter 구현 패턴 + Gemini latency 완화 5 레버 — Phase 5 Adapter Protocol 시그니처 결정의 1차 근거).
 
 - [ ] `ReactLoop` — `async while True` + 토큰 임계 도달 / 종료 신호 / 스텝 상한
 - [ ] **7겹 루프 종료 방어선** (Protocol 로 정의, 각 게이트 교체 가능)
@@ -373,7 +380,7 @@ CC 분석 문서에서 반복적으로 확인된 5가지 핵심 컨셉. 모든 �
 
 ## 🔍 Phase 6 — 도구 서치 시스템 (Always-load / Deferred) + MCP 훅
 
-> **참조**: `toolsearch-시스템.md`
+> **참조**: `toolsearch-시스템.md`, `/Users/goldenplanet/jinsup_space/CC/도구-카탈로그와-ToolSearch-메커니즘.md`
 
 - [ ] `ToolRegistry` — 도구를 `always_load` / `deferred` 태그로 분류
 - [ ] `ToolSearch` 메타 도구

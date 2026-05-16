@@ -1,7 +1,7 @@
 # 인수인계 문서 — best_agent_base
 
 > **다음 세션이 이 한 파일만 읽어도 즉시 이어갈 수 있게 작성.**
-> 마지막 갱신: 2026-05-03 (Phase 2 완료 + Anthropic 어댑터 흡수 + 산출물 룰 노트북 추가 + split_at_boundary rename wrap-up)
+> 마지막 갱신: 2026-05-16 (Phase 3 어태치먼트 시스템 ✅ 완료 + 베이스 디폴트 2종 + helper β + 두 산출물)
 
 ---
 
@@ -57,6 +57,39 @@
 **핵심 검증 — provider 추상화 흡수**:
 > 두 어댑터 (Gemini `CachedContent` 객체 vs Anthropic `cache_control` ephemeral marker) — 완전히 다른 캐싱 메커니즘이 동일 `LLMClient` Protocol + `CachePolicy` + `CacheMetrics` 흐름으로 흡수. 도메인 호출자는 `await client.generate(ctx, cache_policy=policy)` 한 줄로 provider 차이 모름.
 
+### Phase 3 — 어태치먼트 시스템 (사용자 입력 + ReAct 라운드 양 지점) ✅ 완료 (main `ff4b214` — `4ed6ddf` 머지 + `749dfdf` ruff fix + `ff4b214` PRD/tech-design restore)
+
+**산출물** (19 commits 전체, CH-20260508-001 / CH-20260510-001 / CH-20260511-001 / CH-20260511-002):
+
+- `best_agent_base/messages.py` — `Message` + `ContentBlock` discriminated union (Anthropic content block 거울, Pydantic frozen + `Annotated[Union, Field(discriminator="type")]`)
+- `best_agent_base/attachments/` — 8 신규 src + 2 builtins:
+  - `protocol.py` — `Attachment(Protocol, runtime_checkable)` + `AttachmentGroup(StrEnum)` 3 값 (USER_INPUT / ALL_THREAD / MAIN_THREAD)
+  - `registry.py` — `AttachmentRegistry` 모듈-레벨 싱글톤 (Phase 1 SectionRegistry 패턴 거울, register/override/get/all_in_group)
+  - `collect.py` — `collect_attachments(ctx, *, user_input)` 3그룹 병렬 + null 필터 + `<system-reminder>` 자동 wrap + `is_subagent` 분기 (D9 spec deviation: `wait_for(gather)` → `wait(ALL_COMPLETED)` + cancel pending — `test_timeout_drops_slow_keeps_fast` 가 fast 결과 보존 요구)
+  - `counter.py` — `count_turns_since(messages, predicate)` thinking-only 제외 (R-8)
+  - `smoosh.py` — `smoosh_into_last_tool_result(messages, reminder_text)` provider strict alternation 대응, tool_use_id 보존 (R-5)
+  - `gates.py` — `register_tool_pool_gate(name, predicate)` + OR 평가 (D7), `_gates: dict[str, list[ToolPoolGate]]` 모듈-레벨, NFR-1 도구 이름 박지 않음
+  - `integrate.py` — `call_with_attachments(client, ctx, *, user_input, cache_policy)` helper β (D3 — Phase 2 `LLMClient.generate(ctx, *, cache_policy)` 시그니처 무변경 보존)
+  - `builtins/date_change.py` — OS 시계 자정 감지, `last_emit_date` 슬롯 활용 (ALL_THREAD)
+  - `builtins/todo_reminder.py` — 10 round 게이트 + counter 통합 (CC `attachments.ts:254~257` 거울), `len(ctx.todos)` 만 본문에 (D6, ALL_THREAD)
+- `best_agent_base/prompts/render.py` — `RenderContext` 슬롯 5개 추가 (`messages: tuple = ()`, `todos: tuple = ()`, `tool_pool: frozenset[str] = frozenset()`, `last_emit_date: date | None = None`, `is_subagent: bool = False`) — 모두 디폴트 값 (R-6 backward compat)
+- `main.py` — `call_with_attachments` helper + 베이스 디폴트 + GeminiClient 데모 마이그레이션
+- 14 신규/확장 tests + `tests/conftest.py` (`restore_attachment_registry` autouse fixture 추가) = **187 tests GREEN, ruff clean** (Phase 1 70 + Phase 2 41 = 111 회귀 0건 + Phase 3 +76 = 187)
+- `docs/features/2026-05-04-phase-3-attachments/` — PRD + tech-design + impl-plan
+- **`docs/interfaces/phase-3-attachments.md`** — 공식 인터페이스 가이드 (8섹션, 사용 예시 7개, 위험 8개, Public API)
+- **`notebooks/phase-3-attachments-demo.ipynb`** — 데모 노트북 (4부 + 실습 4개)
+
+**핵심 검증 — 두 invariant**:
+> 1. **NFR-2 정적 캐시 안전**: 어태치먼트 등록·발화 전후 `get_static_hash(ctx)` 동일 → Phase 1 BOUNDARY 위 정적 7섹션 무변경 → Phase 2 GeminiClient/AnthropicClient KV 캐시 자동 유지. helper β 가 코드 레벨로 강제 (어태치먼트는 `ctx.messages` 에만 적재).
+> 2. **R-6 backward compat**: `RenderContext()` 무인자 호출 가능 → Phase 1/2 코드 0줄 수정으로 Phase 3 슬롯 자동 흡수. `RenderContext()` 호출 사이트 11개 모두 회귀 0건.
+
+### Phase 3 중 추가된 결정·룰
+
+- **베이스 디폴트 어태치먼트 2종 흡수**: 본래 메커니즘 골격만 (A 안) 였던 것을 사용자 결정으로 `date_change` + `todo_reminder` 본 Phase 범위에 포함 (B 안). 이유 = 메커니즘이 실제로 작동함을 산출물 노트북에서 즉시 시연 가능. 도메인 무관 어태치먼트만 박힘 (NFR-1 도메인 중립성 보존).
+- **D3 β helper 패턴**: Phase 2 `LLMClient` Protocol 시그니처 변경 (α) / `ctx.user_input` 슬롯 (γ) 둘 다 비추 → 호출자가 명시적으로 `call_with_attachments(client, ctx, user_input)` helper 거침. 이유 = Phase 2 Public API 무변경 + 호출 흐름 명시적 + ReAct 루프 (Phase 5+) 가 자연스럽게 흡수.
+- **D9 spec deviation accepted**: 구현계획서의 `asyncio.wait_for(gather, timeout=1.0)` → `asyncio.wait(ALL_COMPLETED) + cancel pending`. 이유 = spec 의 timeout test (`test_timeout_drops_slow_keeps_fast`) 가 fast 결과 보존 요구 → `wait_for(gather)` 는 timeout 시 모든 task 취소로 부분 결과 손실. spec reviewer accept (메인 docstring sync 처리).
+- **Wave-parallel subagent-driven**: js-super-subagent-driven-development v2.0.1 — DAG 추론으로 16 task 를 5 wave 로 분할 (Wave1: 2 / Wave2: 4 / Wave3: 2 / Wave4: 3 / Wave5: 4) + 메인 inline T16 검증. Stage 1 implementer haiku byte-copy + Stage 3 spec reviewer sonnet. 메인이 wave 끝마다 plan order 직렬 commit. helper script (preflight / dag_builder / changelog_buffer) 미설치라 manifest buffer 스킵 + git diff 직접 governance.
+
 ### Phase 2 중 추가된 결정·룰
 
 - **Anthropic 어댑터 흡수**: 본래 OOS-1 ("Anthropic 어댑터 본 구현") 였던 항목을 사용자 결정으로 본 Phase 2 범위에 포함 (CH-010/011/012 cascade). 이유 = provider 추상화의 진정한 검증은 2개 어댑터를 같이 만들어야 가능.
@@ -66,12 +99,12 @@
 
 ### git 상태
 
-- 브랜치: `main` (HEAD `f1a1d31` — Phase 2 머지 + rename `5d88cf6` + wrap-up `f1a1d31`)
-- `phase-2-llm-client-impl` 브랜치/워크트리 — 머지 후 정리됨
-- **`.env` / `.env.example` 환경 변수**: 사용자가 직접 `ANTHROPIC_API_KEY=` 추가 (typo `ANTHOROPIC` 였던 걸 메인이 자동 fix → 정확 철자). 메모리 저장됨 (`~/.claude/projects/.../memory/phase-2-anthropic-api-key-env.md`)
+- 브랜치: `main` (HEAD `ff4b214` — Phase 3 머지 + 후속 ruff fix + PRD/tech-design restore)
+- `phase-3-attachments-impl` 브랜치/워크트리 — 머지 후 정리됨 (`git worktree remove --force`)
+- **`.env` / `.env.example` 환경 변수**: Phase 2 의 `GOOGLE_API_KEY` + `ANTHROPIC_API_KEY` 그대로
 - **`.worktrees/병렬구현-테스트` 절대 건드리지 말 것** (사용자 연구용)
 - origin (GitHub `LonerStayle/best_agent_base`) — push 안 함
-- tag `phase-0-skeleton-done` → `68c91a9` (Phase 1·2 종료 시 새 tag 미생성)
+- tag `phase-0-skeleton-done` → `68c91a9` (Phase 1·2·3 종료 시 새 tag 미생성)
 
 ---
 
@@ -129,29 +162,31 @@
 
 ---
 
-## 🛤️ Next Steps — Phase 3 시작 권장
+## 🛤️ Next Steps — Phase 4 시작 권장
 
-> **다음 세션이 사용자에게 "Phase 3 가자" 신호 받으면 아래 흐름:**
+> **다음 세션이 사용자에게 "Phase 4 가자" 신호 받으면 아래 흐름:**
 
-### Phase 3 — 어태치먼트 시스템 (사용자 입력 + ReAct 라운드 양 지점)
+### Phase 4 — 도구 베이스 + 도구 설명 패턴 (L1/L2/L3)
 
-> [`TODO.md` §🪝 Phase 3](./TODO.md#-phase-3--어태치먼트-시스템-사용자-입력--react-라운드-양-지점) 참조
+> [`TODO.md` §🛠️ Phase 4](./TODO.md#%EF%B8%8F-phase-4--도구-베이스--도구-설명-패턴l1l2l3) 참조
 
-**핵심**: `<system-reminder>` 자동 래핑 + 이중 호출 지점 (사용자 입력 시 / 도구 라운드 후) + 3그룹 병렬 수집 (`asyncio.gather`) + 조건부 생성·null 필터링 + assistant turn 카운터.
+**핵심**: `Tool` 추상 (`name` / `description` / `input_schema(pydantic)` / `validate_input()` / `call()`) + 3레이어 규칙 분리 (L1 시스템 프롬프트 / L2 description 6패턴 / L3 코드 검증) + 가벼운 빌트인 도구만 (Echo / Calc / ToolSearch / 카피 도구 7~8개) + 에러 envelope (`{ok, error, hint, retryable}` — 원칙 #6).
 
 **참조 (필수)**:
-- `attachment-system.md` — 30+ 어태치먼트 자동 수집
-- `첨부시스템-이중설계와-TodoWrite-응용비법.md` — 이중 어태치먼트 + TodoWrite
+- `에이전트-개발-인사이트_cc분석.md` — 도구 description 6패턴 (P1 금지 / P2 실패 / P3 대안 / P4 if/when / P5 전제 / P6 예시)
+- `에이전트-성능-결정요인-총정리.md` — 3레이어 도구 설계 + L2 description 의 무게중심
+- `도구-실행-10단계-파이프라인.md` — `checkPermissionsAndCallTool` 10단계 (Phase 5 ReAct 와도 연결)
 
-**시작 시퀀스** (Phase 0/1/2 패턴 동일):
-1. 사용자에게 진행 모드 확인 — subagent-driven vs main-inline (디폴트는 main, 글로벌 룰)
+**시작 시퀀스** (Phase 0/1/2/3 패턴 동일):
+1. 사용자에게 진행 모드 확인 — subagent-driven vs main-inline (디폴트는 main-inline, 글로벌 룰)
 2. **doc 작업 (brainstorm/design/write-plan) 은 main 에서 직접** — worktree 안 만듦
-3. 코드 구현 단계 진입 시 **새 worktree 생성** — `git worktree add -b phase-3-attachments-impl .worktrees/phase-3-attachments-impl`
-4. `js-super:brainstorming` 호출, slug=`phase-3-attachments`
-5. brainstorming → designing-direction → writing-plans → execute (subagent-driven 또는 inline) → finishing
-6. **두 산출물 의무**: `docs/interfaces/phase-3-attachments.md` + `notebooks/phase-3-attachments-demo.ipynb`
+3. 코드 구현 단계 진입 시 **새 worktree 생성** — `git worktree add -b phase-4-tools-impl .worktrees/phase-4-tools-impl`
+4. **코드 단계 진입 전 main 의 doc 들 worktree 로 cp** (Phase 2/3 lesson learned — `cp -r docs/features/<date>-<slug> .worktrees/<branch>/docs/features/`)
+5. `js-super:brainstorming` 호출, slug=`phase-4-tools`
+6. brainstorming → designing-direction → writing-plans → execute (subagent-driven 또는 inline) → finishing
+7. **두 산출물 의무**: `docs/interfaces/phase-4-tools.md` + `notebooks/phase-4-tools-demo.ipynb`
 
-**Phase 2+ 그루밍 노트** (Phase 1 carry + Phase 2 발견):
+**Phase 3+ 그루밍 노트** (Phase 1/2 carry + Phase 3 발견):
 1. ~~`tests/conftest.py` 도입 (autouse `restore_registry`)~~ ✅ Phase 2 Task 9 처리
 2. `main.py` 의 `load_dotenv()` → `Settings()` 진입점 (Phase 11)
 3. `Settings.log_level` → `Literal[DEBUG, INFO, WARNING, ERROR, CRITICAL]` (Phase 11)
@@ -159,10 +194,15 @@
 5. `extra="ignore"` → `extra="forbid"` 검토 (Phase 11)
 6. **노트북 setup 셀 sys.path patch** 임시 — `uv add --dev jupyter ipykernel` 정식 등록 (deps 추가 사용자 승인 필요)
 7. **Phase 0 인터페이스 가이드 + 데모 노트북 backfill** — `docs/interfaces/phase-0-skeleton.md` + `notebooks/phase-0-skeleton-demo.ipynb`
-8. ~~**`build_gemini_messages` rename**~~ ✅ Phase 2 wrap-up `5d88cf6` 에서 `split_at_boundary` 로 처리됨 (caller 6개 sync, 노트북 갱신 + Anthropic 호출 예시 셀 추가 포함)
-9. **`count_tokens` Phase 9 마이그레이션** — 두 어댑터 모두 placeholder (`int(words * 1.3)`). Gemini = `client.models.count_tokens`, Anthropic = `client.messages.count_tokens` 정식 API 로 교체
-10. **Anthropic 1h extended cache** — D7 대안에서 deferred. ephemeral 1종으로 단순화. ttl_seconds >= 3600 시 1h cache type 매핑 검토
-11. **노트북 ruff 잔여** — `notebooks/phase-1-prompts-demo.ipynb` 9 errors. Phase 작업 외 별도 commit 그루밍
+8. ~~**`build_gemini_messages` rename**~~ ✅ Phase 2 wrap-up `5d88cf6` 에서 처리
+9. **`count_tokens` Phase 9 마이그레이션** — 두 어댑터 모두 placeholder. 정식 SDK API 로 교체
+10. **Anthropic 1h extended cache** — D7 deferred. ephemeral 1종 단순화. ttl_seconds >= 3600 시 1h 매핑 검토
+11. **노트북 ruff 잔여** — `notebooks/phase-1-prompts-demo.ipynb` 9 errors carry-over
+12. **`RenderContext.todos` 정식 타입** — 현재 `tuple = ()` (D6, Phase 5+ TodoWrite 도구가 형식 정의 시 좁히기)
+13. **`RenderContext.tool_pool`** — 현재 frozenset[str] 단순. Phase 4/5 도구 베이스에서 ToolName / ToolMetadata 객체로 강화 검토
+14. **subagent helper script 미설치** — `scripts/{preflight,dag_builder,changelog_buffer}` 가 js-super-subagent-driven-development v2.0.1 가 요구. 현재 manual fallback. Phase 4+ 진입 전 설치 권장 (또는 main-inline 디폴트 사용)
+15. **Phase 3 worktree merge 시 PRD/tech-design 누락** 사고 — worktree 안에서 untracked 였어 머지 누락 → main 에서 cp + 별도 commit 으로 복원. **다음 Phase**: 코드 진입 전 main 에서 docs 먼저 commit 후 worktree cp (lesson)
+16. **`call_with_attachments` helper β** — Phase 5 ReAct 루프가 흡수하면 `attachments/integrate.py` 단독 helper 는 deprecate 검토 (단 노트북 데모용으로 유지 가능)
 
 ---
 
@@ -174,14 +214,14 @@ cd /Users/goldenplanet/jinsup_space/best_agent_base
 
 # 환경 검증
 uv sync                                         # deps 설치
-uv run pytest -v                                # 111 tests
+uv run pytest -v                                # 187 tests
 uv run ruff check best_agent_base/ tests/ main.py  # All checks passed!
 docker compose up -d                            # postgres(5435) + redis(6379)
 
-# Phase 2 데모
-uv run python main.py                           # GeminiClient 단순 호출 (GOOGLE_API_KEY 필요)
+# Phase 2/3 데모
+uv run python main.py                           # call_with_attachments + GeminiClient (GOOGLE_API_KEY 필요)
 
-# 데모 노트북 (Phase 1 + Phase 2)
+# 데모 노트북 (Phase 1 + Phase 2 + Phase 3)
 # (a) VS Code Jupyter ext 로 notebooks/phase-N-*.ipynb 열기 (커널 .venv 선택)
 # (b) 또는: uv add --dev jupyter ipykernel && uv run jupyter notebook notebooks/
 
@@ -209,16 +249,17 @@ uv run python -m scripts.change_id docs/features/<date>-<slug>
 - **Workflow plugin**: `js-super` 만 사용
 - **사용자 이메일**: axtech@goldenplanet.co.kr
 - **GitHub repo**: `LonerStayle/best_agent_base` (origin 설정됨, push 안 함)
-- **테스트 카운트**: Phase 0 = 29 / Phase 1 = +41 (70) / Phase 2 = +41 (111). **현재 111 tests GREEN**
+- **테스트 카운트**: Phase 0 = 29 / Phase 1 = +41 (70) / Phase 2 = +41 (111) / Phase 3 = +76 (187). **현재 187 tests GREEN**
 
 ---
 
 ## 📋 다음 세션 시작 체크리스트
 
 1. [ ] 이 `HANDOFF.md` 한 번 통독
-2. [ ] `git status && git log --oneline -10` 으로 현재 상태 확인 (예상: HEAD `f1a1d31` Phase 2 wrap-up 완료)
-3. [ ] `uv run pytest && uv run ruff check best_agent_base/ tests/ main.py` 가 GREEN (111 tests) 인지 확인
-4. [ ] 사용자가 "Phase 3 가자" 또는 다른 요청 — 그에 맞춰 진입
+2. [ ] `git status && git log --oneline -10` 으로 현재 상태 확인 (예상: HEAD `ff4b214` Phase 3 머지 + post-merge 완료)
+3. [ ] `uv run pytest && uv run ruff check best_agent_base/ tests/ main.py` 가 GREEN (187 tests) 인지 확인
+4. [ ] 사용자가 "Phase 4 가자" 또는 다른 요청 — 그에 맞춰 진입
 5. [ ] Phase 진입이면: 위 "시작 시퀀스" 그대로 따라가기 (doc 단계는 main, 코드 단계만 worktree)
 6. [ ] 새 worktree 만들 때 `.worktrees/병렬구현-테스트` 는 절대 건드리지 말 것 (사용자 연구용)
 7. [ ] Phase 종료 시 **두 산출물** 의무: `docs/interfaces/phase-<N>-<slug>.md` + `notebooks/phase-<N>-<slug>-demo.ipynb` (산출물 룰 — 외부 공개 + 사용예시 위 + Public API 아래)
+8. [ ] **코드 진입 전 main 에서 docs/features/<slug>/ commit 후 worktree cp** (Phase 3 lesson — worktree untracked PRD/tech-design 머지 시 누락)
