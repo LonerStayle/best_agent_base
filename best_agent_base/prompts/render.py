@@ -7,6 +7,7 @@ D1-7=δ: sync 영구. 도메인 비동기 fetch 는 호출자 책임.
 from __future__ import annotations
 
 import hashlib
+from datetime import date
 
 from pydantic import BaseModel, ConfigDict
 
@@ -16,9 +17,23 @@ from best_agent_base.prompts.sections import BASE_SECTIONS
 
 
 class RenderContext(BaseModel):
-    """베이스는 빈 모델. 도메인/Phase 가 필드 추가."""
+    """베이스는 도메인/Phase 가 필드 추가하는 슬롯.
+
+    Phase 3 어태치먼트 슬롯 5개 추가 — 모두 디폴트 값 보유 (R-6 backward compat):
+    - messages: 대화 기록 (어태치먼트가 카운터 / smoosh 시 읽음)
+    - todos: TodoWrite 도구 (Phase 5+ OOS) 슬롯, todo_reminder 가 len() 만 봄 (D6)
+    - tool_pool: 현재 등록된 도구 이름 집합 (도구 풀 게이트 평가용, FR-9)
+    - last_emit_date: date_change 어태치먼트 자정 감지용
+    - is_subagent: True 시 MAIN_THREAD 그룹 자동 제외 (원칙 #7)
+    """
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+
+    messages: tuple = ()  # tuple[Message, ...] — Message import 시 순환 회피
+    todos: tuple = ()  # tuple[Any, ...] — D6 (Phase 5+ 형식 미정 슬롯)
+    tool_pool: frozenset[str] = frozenset()
+    last_emit_date: date | None = None
+    is_subagent: bool = False
 
 
 def _render_static(ctx: RenderContext) -> str:
