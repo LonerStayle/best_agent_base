@@ -10,7 +10,7 @@ from best_agent_base.attachments.builtins import date_change as _dc  # auto-regi
 from best_agent_base.attachments.builtins import todo_reminder as _tr  # auto-register
 from best_agent_base.attachments.integrate import call_with_attachments
 from best_agent_base.llm.client import LLMResponse, TokenUsage
-from best_agent_base.messages import Message, TextBlock, ToolUseBlock
+from best_agent_base.messages import Message, TextBlock
 from best_agent_base.prompts.render import RenderContext
 
 _ = (_dc, _tr)
