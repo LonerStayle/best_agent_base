@@ -86,6 +86,9 @@ class GeminiClient:
         *,
         cache_policy: CachePolicy | None = None,
     ) -> LLMResponse:
+        # Phase 3.5 — ctx.model 없으면 자기 model 자동 주입 (D3, FR-5)
+        if ctx.model is None:
+            ctx = ctx.model_copy(update={"model": self._profile.model.value})
         policy = cache_policy if cache_policy is not None else CachePolicy()
         static_text, dynamic_text = split_at_boundary(ctx)
         key = _cache_key_for(ctx)
