@@ -12,6 +12,7 @@ from datetime import date
 from pydantic import BaseModel, ConfigDict
 
 from best_agent_base.prompts.boundary import SYSTEM_PROMPT_DYNAMIC_BOUNDARY
+from best_agent_base.prompts.model_filter import filter_model_blocks
 from best_agent_base.prompts.registry import registry
 from best_agent_base.prompts.sections import BASE_SECTIONS
 
@@ -57,7 +58,7 @@ def _render_static(ctx: RenderContext) -> str:
                 f"section {section.name!r} render output contains the boundary marker "
                 f"({SYSTEM_PROMPT_DYNAMIC_BOUNDARY!r}); domain content must not include it."
             )
-        parts.append(text)
+        parts.append(filter_model_blocks(text, ctx.model))
     return "\n\n".join(parts)
 
 
@@ -78,7 +79,7 @@ def _render_dynamic(ctx: RenderContext) -> str:
                 f"section {section.name!r} render output contains the boundary marker "
                 f"({SYSTEM_PROMPT_DYNAMIC_BOUNDARY!r}); domain content must not include it."
             )
-        parts.append(text)
+        parts.append(filter_model_blocks(text, ctx.model))
     return "\n\n".join(parts)
 
 
