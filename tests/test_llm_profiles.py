@@ -18,12 +18,12 @@ from best_agent_base.llm.profiles import DEFAULT_CHAT, DEFAULT_REASONING, ModelP
 
 
 def test_gemini_model_is_str_enum():
-    """T1: enum value 가 그대로 문자열로 사용 가능."""
-    assert GeminiModel.FLASH == "gemini-3-flash"
-    assert GeminiModel.FLASH_LITE == "gemini-3-flash-lite"
-    assert GeminiModel.PRO == "gemini-3-pro"
+    """T1: enum value = 모델 ID 문자열 (Google AI 공식 페이지 검증 2026-05-17)."""
+    assert GeminiModel.PRO == "gemini-3.1-pro-preview"
+    assert GeminiModel.FLASH == "gemini-3-flash-preview"
+    assert GeminiModel.FLASH_LITE == "gemini-3.1-flash-lite"
     # str 비교 가능
-    assert GeminiModel.FLASH.value == "gemini-3-flash"
+    assert GeminiModel.FLASH.value == "gemini-3-flash-preview"
     assert isinstance(GeminiModel.FLASH, str)
 
 

@@ -10,14 +10,21 @@ from enum import StrEnum
 
 
 class GeminiModel(StrEnum):
-    """Gemini 모델 카탈로그.
+    """Gemini 모델 카탈로그 — 각 시리즈 가장 최신 1개씩.
 
     값은 그대로 모델 ID 로 사용됨 (StrEnum). 새 모델 추가 시 이 enum 에만 추가.
+
+    출처: Google AI for Developers ``ai.google.dev/gemini-api/docs/models``
+    (WebFetch + WebSearch 검증, 2026-05-17).
+
+    상태:
+    - Pro/Flash 는 Preview 단계 (3.x 신규 라인)
+    - Flash-Lite 는 Stable (3.1)
     """
 
-    FLASH_LITE = "gemini-3-flash-lite"
-    FLASH = "gemini-3-flash"
-    PRO = "gemini-3-pro"
+    PRO = "gemini-3.1-pro-preview"
+    FLASH = "gemini-3-flash-preview"
+    FLASH_LITE = "gemini-3.1-flash-lite"
 
 
 class AnthropicModel(StrEnum):
