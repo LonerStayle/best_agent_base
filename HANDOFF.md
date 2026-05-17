@@ -1,7 +1,7 @@
 # 인수인계 문서 — best_agent_base
 
 > **다음 세션이 이 한 파일만 읽어도 즉시 이어갈 수 있게 작성.**
-> 마지막 갱신: 2026-05-17 (Phase 3.5 mini-phase ✅ 완료 + 모델별 프롬프트 변형 슬롯 + 220 tests)
+> 마지막 갱신: 2026-05-17 (Phase 3.5 mini-phase ✅ + AnthropicModel enum 보강 + 221 tests)
 
 ---
 
@@ -129,7 +129,7 @@
 
 ### git 상태
 
-- 브랜치: `main` (HEAD `dc44faa` — Phase 3.5 mini-phase 완료, main-inline 직접 commit)
+- 브랜치: `main` (HEAD `3d08cdb` — Phase 3.5 + AnthropicModel enum 보강)
 - `phase-3-attachments-impl` 브랜치/워크트리 — 머지 후 정리됨 (`git worktree remove --force`)
 - Phase 3.5 는 worktree 미사용 (작은 mini-phase + 사용자 자동 진행 모드 — main 직접 6 task commit)
 - **`.env` / `.env.example` 환경 변수**: Phase 2 의 `GOOGLE_API_KEY` + `ANTHROPIC_API_KEY` 그대로
@@ -294,7 +294,7 @@ uv run python -m scripts.change_id docs/features/<date>-<slug>
 - **Workflow plugin**: `js-super` 만 사용
 - **사용자 이메일**: axtech@goldenplanet.co.kr
 - **GitHub repo**: `LonerStayle/best_agent_base` (origin 설정됨, push 안 함)
-- **테스트 카운트**: Phase 0 = 29 / Phase 1 = +41 (70) / Phase 2 = +41 (111) / Phase 3 = +76 (187) / Phase 3.5 = +33 (220). **현재 220 tests GREEN**
+- **테스트 카운트**: Phase 0 = 29 / Phase 1 = +41 (70) / Phase 2 = +41 (111) / Phase 3 = +76 (187) / Phase 3.5 = +33 (220) / +AnthropicModel enum (+1) = 221. **현재 221 tests GREEN**
 
 ---
 
