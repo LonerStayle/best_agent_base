@@ -18,3 +18,17 @@ class GeminiModel(StrEnum):
     FLASH_LITE = "gemini-3-flash-lite"
     FLASH = "gemini-3-flash"
     PRO = "gemini-3-pro"
+
+
+class AnthropicModel(StrEnum):
+    """Anthropic Claude 모델 카탈로그 — 각 시리즈 가장 최신 floating alias 만.
+
+    값은 그대로 모델 ID 로 사용됨. dated suffix (예: ``claude-sonnet-4-5-20250929``)
+    는 도메인이 직접 문자열로 박거나 enum 확장.
+
+    출처: anthropic SDK ``anthropic/types/model.py`` (context7 검증, 2026-05-17).
+    """
+
+    OPUS_LATEST = "claude-opus-4-7"
+    SONNET_LATEST = "claude-sonnet-4-6"
+    HAIKU_LATEST = "claude-haiku-4-5"

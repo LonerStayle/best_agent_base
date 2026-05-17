@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from best_agent_base.llm.models import GeminiModel
+from best_agent_base.llm.models import AnthropicModel, GeminiModel
 from best_agent_base.llm.profiles import DEFAULT_CHAT, DEFAULT_REASONING, ModelProfile
 
 
@@ -25,6 +25,16 @@ def test_gemini_model_is_str_enum():
     # str 비교 가능
     assert GeminiModel.FLASH.value == "gemini-3-flash"
     assert isinstance(GeminiModel.FLASH, str)
+
+
+def test_anthropic_model_is_str_enum():
+    """T1b: AnthropicModel StrEnum — 각 시리즈 가장 최신 1개씩 (context7 검증 2026-05-17)."""
+    assert AnthropicModel.OPUS_LATEST == "claude-opus-4-7"
+    assert AnthropicModel.SONNET_LATEST == "claude-sonnet-4-6"
+    assert AnthropicModel.HAIKU_LATEST == "claude-haiku-4-5"
+    assert isinstance(AnthropicModel.SONNET_LATEST, str)
+    # 정확 3개 (시리즈당 1개)
+    assert len(list(AnthropicModel)) == 3
 
 
 def test_model_profile_defaults():

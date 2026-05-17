@@ -16,6 +16,7 @@ from best_agent_base.llm.cache_metrics import CacheEvent, CacheMetrics
 from best_agent_base.llm.cache_policy import CachePolicy
 from best_agent_base.llm.client import LLMResponse, TokenUsage
 from best_agent_base.llm.messages import split_at_boundary
+from best_agent_base.llm.models import AnthropicModel
 from best_agent_base.prompts.render import RenderContext, get_static_hash
 
 
@@ -37,7 +38,7 @@ class AnthropicClient:
     def __init__(
         self,
         *,
-        model: str = "claude-sonnet-4-5-20250929",
+        model: str = AnthropicModel.SONNET_LATEST.value,
         max_tokens: int = 4096,
         metrics: CacheMetrics | None = None,
     ) -> None:
