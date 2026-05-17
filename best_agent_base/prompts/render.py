@@ -19,21 +19,25 @@ from best_agent_base.prompts.sections import BASE_SECTIONS
 class RenderContext(BaseModel):
     """베이스는 도메인/Phase 가 필드 추가하는 슬롯.
 
-    Phase 3 어태치먼트 슬롯 5개 추가 — 모두 디폴트 값 보유 (R-6 backward compat):
+    Phase 3 어태치먼트 슬롯 5개 + Phase 3.5 model 슬롯 — 모두 디폴트 값 보유:
     - messages: 대화 기록 (어태치먼트가 카운터 / smoosh 시 읽음)
     - todos: TodoWrite 도구 (Phase 5+ OOS) 슬롯, todo_reminder 가 len() 만 봄 (D6)
     - tool_pool: 현재 등록된 도구 이름 집합 (도구 풀 게이트 평가용, FR-9)
     - last_emit_date: date_change 어태치먼트 자정 감지용
     - is_subagent: True 시 MAIN_THREAD 그룹 자동 제외 (원칙 #7)
+    - model: 모델별 prompt 변형 (@[MODEL:] 마커 필터용, Phase 3.5 D1). 디폴트 None.
     """
 
-    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+    model_config = ConfigDict(
+        frozen=True, arbitrary_types_allowed=True, protected_namespaces=()
+    )
 
     messages: tuple = ()  # tuple[Message, ...] — Message import 시 순환 회피
     todos: tuple = ()  # tuple[Any, ...] — D6 (Phase 5+ 형식 미정 슬롯)
     tool_pool: frozenset[str] = frozenset()
     last_emit_date: date | None = None
     is_subagent: bool = False
+    model: str | None = None  # Phase 3.5 — @[MODEL:] 마커 필터 / 어댑터 자동 주입 (D1, D3)
 
 
 def _render_static(ctx: RenderContext) -> str:

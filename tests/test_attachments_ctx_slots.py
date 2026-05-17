@@ -47,3 +47,14 @@ def test_frozen_after_construction():
     ctx = RenderContext()
     with pytest.raises(ValidationError):
         ctx.is_subagent = True  # type: ignore[misc]
+
+
+def test_model_slot_default_none():
+    """Phase 3.5 — RenderContext.model 슬롯 디폴트 None."""
+    ctx = RenderContext()
+    assert ctx.model is None
+
+
+def test_model_slot_accepts_string():
+    ctx = RenderContext(model="claude-sonnet-4-5-20250929")
+    assert ctx.model == "claude-sonnet-4-5-20250929"
