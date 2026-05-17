@@ -66,3 +66,64 @@ async def test_gemini_respects_explicit_model(monkeypatch):
     monkeypatch.setattr(gemini_mod, "split_at_boundary", spy_split)
     await client.generate(RenderContext(model="my-custom-model"))
     assert captured_ctx[0].model == "my-custom-model"
+
+
+@pytest.mark.asyncio
+async def test_anthropic_auto_injects_model_when_none(monkeypatch):
+    """AnthropicClient.generate(ctx with model=None) → 어댑터가 self._model 자동 주입."""
+    from best_agent_base.llm import anthropic as anth_mod
+
+    fake_sdk = MagicMock()
+    fake_block = MagicMock()
+    fake_block.text = "ok"
+    fake_result = MagicMock()
+    fake_result.content = [fake_block]
+    fake_result.usage = MagicMock(
+        input_tokens=1, output_tokens=1, cache_read_input_tokens=0, cache_creation_input_tokens=0
+    )
+    fake_sdk.messages.create = AsyncMock(return_value=fake_result)
+
+    monkeypatch.setattr(anth_mod, "_build_anthropic_client", lambda: fake_sdk)
+    client = anth_mod.AnthropicClient()
+    expected_model = client._model
+
+    captured_ctx: list[RenderContext] = []
+    orig_split = anth_mod.split_at_boundary
+
+    def spy_split(ctx):
+        captured_ctx.append(ctx)
+        return orig_split(ctx)
+
+    monkeypatch.setattr(anth_mod, "split_at_boundary", spy_split)
+    await client.generate(RenderContext())  # ctx.model=None
+    assert captured_ctx[0].model == expected_model
+
+
+@pytest.mark.asyncio
+async def test_anthropic_respects_explicit_model(monkeypatch):
+    """ctx.model 명시 시 어댑터 자동 주입 우회."""
+    from best_agent_base.llm import anthropic as anth_mod
+
+    fake_sdk = MagicMock()
+    fake_block = MagicMock()
+    fake_block.text = "ok"
+    fake_result = MagicMock()
+    fake_result.content = [fake_block]
+    fake_result.usage = MagicMock(
+        input_tokens=1, output_tokens=1, cache_read_input_tokens=0, cache_creation_input_tokens=0
+    )
+    fake_sdk.messages.create = AsyncMock(return_value=fake_result)
+
+    monkeypatch.setattr(anth_mod, "_build_anthropic_client", lambda: fake_sdk)
+    client = anth_mod.AnthropicClient()
+
+    captured_ctx: list[RenderContext] = []
+    orig_split = anth_mod.split_at_boundary
+
+    def spy_split(ctx):
+        captured_ctx.append(ctx)
+        return orig_split(ctx)
+
+    monkeypatch.setattr(anth_mod, "split_at_boundary", spy_split)
+    await client.generate(RenderContext(model="my-custom-model"))
+    assert captured_ctx[0].model == "my-custom-model"

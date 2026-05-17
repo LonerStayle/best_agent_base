@@ -57,7 +57,11 @@ class AnthropicClient:
 
         Raises: anthropic SDK 예외 (BadRequestError / RateLimitError / etc.) 그대로 전파 (D6).
         에러 envelope 변환은 도구 베이스 Phase 의 본질이라 본 어댑터에서 흡수하지 않음.
+        Phase 3.5: ctx.model 없으면 self._model 자동 주입 (D3, FR-5).
         """
+        # Phase 3.5 — ctx.model 없으면 자기 model 자동 주입
+        if ctx.model is None:
+            ctx = ctx.model_copy(update={"model": self._model})
         policy = cache_policy if cache_policy is not None else CachePolicy()
         static_text, dynamic_text = split_at_boundary(ctx)
         key = get_static_hash(ctx)
