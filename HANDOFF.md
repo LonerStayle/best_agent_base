@@ -162,11 +162,25 @@
 
 ---
 
-## 🛤️ Next Steps — Phase 4 시작 권장
+## 🛤️ Next Steps — Phase 3.5 mini-phase **먼저** (Phase 4 진입 전 필수)
 
-> **다음 세션이 사용자에게 "Phase 4 가자" 신호 받으면 아래 흐름:**
+> **Phase 1~3 자기검토에서 발견**: 현재 `render(ctx)` 가 단일 prompt 를 두 어댑터에 동일 전달 → 모델별 프롬프트 변형 불가. CC `@[MODEL: ...]` 마커 시스템 (원칙 #5) 슬롯 미구현. Phase 4 도구 베이스도 모델별 description 변형 필요 → Phase 3.5 mini-phase 로 같이 박는 게 ROI 최대.
 
-### Phase 4 — 도구 베이스 + 도구 설명 패턴 (L1/L2/L3)
+### Phase 3.5 — 모델별 프롬프트 변형 슬롯 (mini-phase)
+
+> [`TODO.md` §🎚️ Phase 3.5](./TODO.md#%EF%B8%8F-phase-35--모델별-프롬프트-변형-슬롯-mini-phase-phase-4-진입-전-필수) 참조
+
+**핵심**: `RenderContext.model` 슬롯 + `@[MODEL: <pattern>] ... @[/MODEL]` 마커 + `filter_model_blocks` 헬퍼 + 어댑터 자동 model 주입 + Phase 1~3 backward compat (마커 없는 코드는 모든 모델에서 동일 출력).
+
+**참조 (필수)**: `prompt-engineering-techniques.md`, `cc-analysis/17-getAntModelOverrideSection-analysis.md` (CC `getAntModelOverrideSection` 분석 — 모델별 교정 ground truth), 원칙 #5 관찰→교정→재관찰
+
+**시작 시퀀스**:
+1. 사용자에게 진행 모드 확인 — 작은 mini-phase 라 main-inline 권장 (subagent-driven 오버헤드 ↑)
+2. doc 단계 main 에서 — `js-super:brainstorming` slug=`phase-3-5-model-prompts`
+3. brainstorming → designing-direction → writing-plans → execute (inline) → finishing
+4. **두 산출물 의무**: `docs/interfaces/phase-3-5-model-prompts.md` + `notebooks/phase-3-5-model-prompts-demo.ipynb`
+
+### Phase 4 — 도구 베이스 + 도구 설명 패턴 (L1/L2/L3) (Phase 3.5 후 진입)
 
 > [`TODO.md` §🛠️ Phase 4](./TODO.md#%EF%B8%8F-phase-4--도구-베이스--도구-설명-패턴l1l2l3) 참조
 
