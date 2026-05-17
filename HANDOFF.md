@@ -1,7 +1,7 @@
 # 인수인계 문서 — best_agent_base
 
 > **다음 세션이 이 한 파일만 읽어도 즉시 이어갈 수 있게 작성.**
-> 마지막 갱신: 2026-05-17 (Phase 3.5 mini-phase ✅ + AnthropicModel enum 보강 + 221 tests)
+> 마지막 갱신: 2026-05-17 (Phase 3.5 ✅ + AnthropicModel/GeminiModel enum 정확 ID sync + 221 tests)
 
 ---
 
@@ -109,6 +109,30 @@
 2. **NFR-3 정적 캐시 안전** — 같은 모델 호출 시 동일 hash, 다른 모델 호출 시 다른 hash → Phase 2 KV 캐시 모델별 격리
 3. **NFR-1 도메인 중립성** — 베이스 `prompts/` 안에 도메인 모델 이름 (`claude-*`, `gemini-*`) grep 0건. 단 어댑터 (`llm/`) 자기 model 이름 자동 주입은 예외 OK
 
+### 모델 enum 보강 (Phase 3.5 후속, HEAD `6153908`)
+
+Phase 3.5 의 `RenderContext.model` 슬롯 + `@[MODEL:]` 마커가 모델 ID 문자열을 직접 다루기 시작 → 베이스에 정확한 모델 catalog 필요. Phase 0 의 `GeminiModel(StrEnum)` 만 있고 Anthropic 빠짐 + Gemini 도 stale 발견 → 같이 sync.
+
+**최종 카탈로그** (`best_agent_base/llm/models.py`):
+
+```python
+class GeminiModel(StrEnum):
+    PRO        = "gemini-3.1-pro-preview"   # 3.1 Pro Preview (3 Pro Preview 는 2026-03-09 shut down)
+    FLASH      = "gemini-3-flash-preview"   # 3 Flash Preview
+    FLASH_LITE = "gemini-3.1-flash-lite"    # 3.1 Flash-Lite (유일 Stable)
+
+class AnthropicModel(StrEnum):
+    OPUS_LATEST   = "claude-opus-4-7"
+    SONNET_LATEST = "claude-sonnet-4-6"
+    HAIKU_LATEST  = "claude-haiku-4-5"
+```
+
+- AnthropicClient 디폴트 model 하드코딩 → `AnthropicModel.SONNET_LATEST.value`
+- 각 시리즈 1개씩 — 도메인이 dated suffix (예: `claude-sonnet-4-5-20250929`) 필요하면 enum 확장 또는 직접 문자열
+- 222 → 221 tests (test_gemini_model_is_str_enum 값 업데이트, 신규 test_anthropic_model_is_str_enum +1)
+
+**Lesson**: 첫 시도에 context7 SDK docs 만 보고 GeminiModel 안 건드렸음 → 사용자 지적 "그 context7 보고 제미나이도 맞춘거 맞아?" 로 catch. Google AI for Developers 공식 페이지 WebFetch 로 재검증 → 우리 enum 전부 stale 발견. **이후 모델 enum 작업은 공식 docs 직접 확인 의무**.
+
 ### Phase 3.5 중 결정·룰
 
 - **A + D 조합 채택** — (A) RenderContext.model 슬롯 + (D) `@[MODEL: <pattern>]` 마커 런타임 필터. CC 원본 패턴에 가장 가까운 조합. 사용자 명시.
@@ -129,7 +153,8 @@
 
 ### git 상태
 
-- 브랜치: `main` (HEAD `3d08cdb` — Phase 3.5 + AnthropicModel enum 보강)
+- 브랜치: `main` (HEAD `6153908` — Phase 3.5 + AnthropicModel 신규 + GeminiModel 정확 ID sync)
+- **모델 enum 검증 룰** (Phase 3.5 lesson): context7 SDK docs 는 generic 예제만 → stale 가능. **공식 docs 페이지 직접 WebFetch/WebSearch 확인 필수** (Anthropic: SDK types/model.py / Gemini: ai.google.dev/gemini-api/docs/models)
 - `phase-3-attachments-impl` 브랜치/워크트리 — 머지 후 정리됨 (`git worktree remove --force`)
 - Phase 3.5 는 worktree 미사용 (작은 mini-phase + 사용자 자동 진행 모드 — main 직접 6 task commit)
 - **`.env` / `.env.example` 환경 변수**: Phase 2 의 `GOOGLE_API_KEY` + `ANTHROPIC_API_KEY` 그대로
@@ -301,8 +326,8 @@ uv run python -m scripts.change_id docs/features/<date>-<slug>
 ## 📋 다음 세션 시작 체크리스트
 
 1. [ ] 이 `HANDOFF.md` 한 번 통독
-2. [ ] `git status && git log --oneline -10` 으로 현재 상태 확인 (예상: HEAD `dc44faa` Phase 3.5 wrap-up)
-3. [ ] `uv run pytest && uv run ruff check best_agent_base/ tests/ main.py` 가 GREEN (220 tests) 인지 확인
+2. [ ] `git status && git log --oneline -10` 으로 현재 상태 확인 (예상: HEAD `6153908` Phase 3.5 + 모델 enum sync)
+3. [ ] `uv run pytest && uv run ruff check best_agent_base/ tests/ main.py` 가 GREEN (221 tests) 인지 확인
 4. [ ] 사용자가 "Phase 4 가자" 또는 다른 요청 — 그에 맞춰 진입
 5. [ ] Phase 진입이면: 위 "시작 시퀀스" 그대로 따라가기 (doc 단계는 main, 코드 단계만 worktree)
 6. [ ] 새 worktree 만들 때 `.worktrees/병렬구현-테스트` 는 절대 건드리지 말 것 (사용자 연구용)
