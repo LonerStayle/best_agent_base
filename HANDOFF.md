@@ -1,7 +1,7 @@
 # 인수인계 문서 — best_agent_base
 
 > **다음 세션이 이 한 파일만 읽어도 즉시 이어갈 수 있게 작성.**
-> 마지막 갱신: 2026-05-16 (Phase 3 어태치먼트 시스템 ✅ 완료 + 베이스 디폴트 2종 + helper β + 두 산출물)
+> 마지막 갱신: 2026-05-17 (Phase 3.5 mini-phase ✅ 완료 + 모델별 프롬프트 변형 슬롯 + 220 tests)
 
 ---
 
@@ -90,6 +90,36 @@
 - **D9 spec deviation accepted**: 구현계획서의 `asyncio.wait_for(gather, timeout=1.0)` → `asyncio.wait(ALL_COMPLETED) + cancel pending`. 이유 = spec 의 timeout test (`test_timeout_drops_slow_keeps_fast`) 가 fast 결과 보존 요구 → `wait_for(gather)` 는 timeout 시 모든 task 취소로 부분 결과 손실. spec reviewer accept (메인 docstring sync 처리).
 - **Wave-parallel subagent-driven**: js-super-subagent-driven-development v2.0.1 — DAG 추론으로 16 task 를 5 wave 로 분할 (Wave1: 2 / Wave2: 4 / Wave3: 2 / Wave4: 3 / Wave5: 4) + 메인 inline T16 검증. Stage 1 implementer haiku byte-copy + Stage 3 spec reviewer sonnet. 메인이 wave 끝마다 plan order 직렬 commit. helper script (preflight / dag_builder / changelog_buffer) 미설치라 manifest buffer 스킵 + git diff 직접 governance.
 
+### Phase 3.5 — 모델별 프롬프트 변형 슬롯 (mini-phase) ✅ 완료 (main `dc44faa`)
+
+**배경**: Phase 1~3 자기검토 격차 발견 — render(ctx) 가 단일 prompt 를 두 어댑터에 동일 전달, model 별 변형 부재. CC `getAntModelOverrideSection` 슬롯 미구현. Phase 4 도구 description 도 같은 메커니즘 필요 → ROI 최대로 mini-phase 도입.
+
+**산출물** (CH-20260517-001/002/003/004):
+
+- `best_agent_base/prompts/model_filter.py` (신규) — `filter_model_blocks(text, model)` 헬퍼 (정규식 non-greedy + DOTALL + fnmatch glob + 중첩 거부)
+- `best_agent_base/prompts/render.py` (변경) — `RenderContext.model: str | None = None` 슬롯 + `_render_static` / `_render_dynamic` 양쪽 `filter_model_blocks` 적용
+- `best_agent_base/llm/{gemini,anthropic}.py` (변경) — `generate()` 시작 `ctx.model is None` 이면 자기 model 자동 주입 (`ctx.model_copy(update={"model": self_model})`, frozen ctx)
+- 4 신규/확장 tests: `test_prompts_model_filter` (9) + `test_prompts_model_aware_render` (6) + `test_llm_adapter_model_injection` (4) + `test_attachments_ctx_slots` (+2) + `test_no_domain_vocab` (+12) = **+33 tests → 220 GREEN**
+- `docs/interfaces/phase-3-5-model-prompts.md` (8섹션 인터페이스 가이드, 사용 예시 7개, 위험 5개, Public API)
+- `notebooks/phase-3-5-model-prompts-demo.ipynb` (4부 + 실습 4개)
+
+**핵심 검증 (3 invariant)**:
+
+1. **R-3 backward compat** — `RenderContext.model` 디폴트 None → Phase 1~3 회귀 187 GREEN (RenderContext() 무인자 호출 11+ 사이트 무수정)
+2. **NFR-3 정적 캐시 안전** — 같은 모델 호출 시 동일 hash, 다른 모델 호출 시 다른 hash → Phase 2 KV 캐시 모델별 격리
+3. **NFR-1 도메인 중립성** — 베이스 `prompts/` 안에 도메인 모델 이름 (`claude-*`, `gemini-*`) grep 0건. 단 어댑터 (`llm/`) 자기 model 이름 자동 주입은 예외 OK
+
+### Phase 3.5 중 결정·룰
+
+- **A + D 조합 채택** — (A) RenderContext.model 슬롯 + (D) `@[MODEL: <pattern>]` 마커 런타임 필터. CC 원본 패턴에 가장 가까운 조합. 사용자 명시.
+- **D2: model=None → 모든 마커 strip (조용한 정규화)** — 도메인이 model 안 박았는데 마커 박혀있으면 마커 자동 무시. Phase 1~3 backward compat 최강. ValueError 던지는 옵션 거부 (도메인 마찰).
+- **D3: 어댑터 자동 주입 via `model_copy`** — frozen ctx 새 인스턴스. Phase 2 LLMClient.generate Protocol 시그니처 무변경 (B-thin 보존).
+- **D4: hash 시점 = filter 후** — 같은 모델 hash 동일 (캐시 적중), 다른 모델 다른 hash (캐시 격리). raw hash 는 모델 변경 시 캐시 키 충돌.
+- **D5: 중첩 마커 = ValueError** — 단일 레벨만 허용. 중첩은 구조적 모호 (외부 우선? 내부 우선?).
+- **사용자 자동 진행 모드** — "yes 뒤에는 다 자동" 명시 → designing-direction / writing-plans / executing-plans 의 사용자 게이트 모두 스킵, 추천 옵션 자동 선택. main-inline 실행 (worktree 미사용, 작은 mini-phase).
+- **R-1 정규식 함정 catch** — 첫 구현 시 `\s*(.*?)\s*` 가 multiline 의 leading `\n` 삼킴 → `(.*?)` 로 fix (단위 테스트가 catch).
+- **`protected_namespaces=()` 추가** — Pydantic v2 가 `model_` 접두사 충돌 경고 → ConfigDict 옵션으로 회피.
+
 ### Phase 2 중 추가된 결정·룰
 
 - **Anthropic 어댑터 흡수**: 본래 OOS-1 ("Anthropic 어댑터 본 구현") 였던 항목을 사용자 결정으로 본 Phase 2 범위에 포함 (CH-010/011/012 cascade). 이유 = provider 추상화의 진정한 검증은 2개 어댑터를 같이 만들어야 가능.
@@ -99,8 +129,9 @@
 
 ### git 상태
 
-- 브랜치: `main` (HEAD `ff4b214` — Phase 3 머지 + 후속 ruff fix + PRD/tech-design restore)
+- 브랜치: `main` (HEAD `dc44faa` — Phase 3.5 mini-phase 완료, main-inline 직접 commit)
 - `phase-3-attachments-impl` 브랜치/워크트리 — 머지 후 정리됨 (`git worktree remove --force`)
+- Phase 3.5 는 worktree 미사용 (작은 mini-phase + 사용자 자동 진행 모드 — main 직접 6 task commit)
 - **`.env` / `.env.example` 환경 변수**: Phase 2 의 `GOOGLE_API_KEY` + `ANTHROPIC_API_KEY` 그대로
 - **`.worktrees/병렬구현-테스트` 절대 건드리지 말 것** (사용자 연구용)
 - origin (GitHub `LonerStayle/best_agent_base`) — push 안 함
@@ -263,15 +294,15 @@ uv run python -m scripts.change_id docs/features/<date>-<slug>
 - **Workflow plugin**: `js-super` 만 사용
 - **사용자 이메일**: axtech@goldenplanet.co.kr
 - **GitHub repo**: `LonerStayle/best_agent_base` (origin 설정됨, push 안 함)
-- **테스트 카운트**: Phase 0 = 29 / Phase 1 = +41 (70) / Phase 2 = +41 (111) / Phase 3 = +76 (187). **현재 187 tests GREEN**
+- **테스트 카운트**: Phase 0 = 29 / Phase 1 = +41 (70) / Phase 2 = +41 (111) / Phase 3 = +76 (187) / Phase 3.5 = +33 (220). **현재 220 tests GREEN**
 
 ---
 
 ## 📋 다음 세션 시작 체크리스트
 
 1. [ ] 이 `HANDOFF.md` 한 번 통독
-2. [ ] `git status && git log --oneline -10` 으로 현재 상태 확인 (예상: HEAD `ff4b214` Phase 3 머지 + post-merge 완료)
-3. [ ] `uv run pytest && uv run ruff check best_agent_base/ tests/ main.py` 가 GREEN (187 tests) 인지 확인
+2. [ ] `git status && git log --oneline -10` 으로 현재 상태 확인 (예상: HEAD `dc44faa` Phase 3.5 wrap-up)
+3. [ ] `uv run pytest && uv run ruff check best_agent_base/ tests/ main.py` 가 GREEN (220 tests) 인지 확인
 4. [ ] 사용자가 "Phase 4 가자" 또는 다른 요청 — 그에 맞춰 진입
 5. [ ] Phase 진입이면: 위 "시작 시퀀스" 그대로 따라가기 (doc 단계는 main, 코드 단계만 worktree)
 6. [ ] 새 worktree 만들 때 `.worktrees/병렬구현-테스트` 는 절대 건드리지 말 것 (사용자 연구용)

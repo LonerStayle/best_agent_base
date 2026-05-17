@@ -342,23 +342,28 @@
 
 ---
 
-## 🎚️ Phase 3.5 — 모델별 프롬프트 변형 슬롯 (mini-phase, Phase 4 진입 전 필수)
+## 🎚️ Phase 3.5 — 모델별 프롬프트 변형 슬롯 (mini-phase) ✅ 완료 (main `dc44faa`, 220 tests, 4 CH entries)
+
+> **산출물**: docs/features/2026-05-17-phase-3-5-model-prompts/ (PRD CH-20260517-001 + tech-design CH-20260517-002 + impl-plan CH-20260517-003 + 코드-수정 batch CH-20260517-004) / docs/interfaces/phase-3-5-model-prompts.md (8섹션) / notebooks/phase-3-5-model-prompts-demo.ipynb (4부)
+> **결과**: 6 task main-inline (사용자 자동 진행), 33 신규/확장 tests (187 → 220), ruff clean, Phase 1/2/3 회귀 0건.
+
+
 
 > **배경**: Phase 1~3 자기검토에서 발견된 격차. 현재 `render(ctx)` 가 단일 prompt string 을 두 어댑터에 동일하게 전달 — provider/model 별 프롬프트 변형 불가능. CC 의 `@[MODEL: <model> <yyyy-mm>]` 마커 (원칙 #5 관찰→교정→재관찰) 슬롯 자리는 잡혀있지만 본격 구현 미진. Phase 4 도구 베이스도 모델별 description 변형 필요 → Phase 3.5 에서 같이 박는 게 ROI 최대.
 >
 > **참조**: `prompt-engineering-techniques.md`, `cc-analysis/17-getAntModelOverrideSection-analysis.md` (CC 의 `getAntModelOverrideSection` — 모델 버전별 교정 정확한 ground truth), 원칙 #5 관찰→교정→재관찰
 
-- [ ] **`RenderContext.model: str | None = None` 슬롯 추가** — 도메인이 명시적으로 모델 이름 채움 (예: `"claude-sonnet-4-5-20250929"`, `"gemini-2.5-flash"`). 디폴트 None = 모델-무관 (Phase 1~3 backward compat)
-- [ ] **`@[MODEL: <pattern>] ... @[/MODEL]` 마커 시스템** — PromptSection 의 `render(ctx)` 결과 안에서 `@[MODEL: claude-*]` 블록은 claude 계열 모델일 때만 keep, 아니면 strip. glob 패턴 지원
-- [ ] **`prompts/model_filter.py`** (신규) — `filter_model_blocks(text, model: str | None) -> str` 헬퍼. ctx.model None 이면 모든 @[MODEL] 블록 그대로 둠 (또는 모두 strip — 결정 필요)
-- [ ] **`render(ctx)` 통합** — _render_static / _render_dynamic 결과에 filter_model_blocks 적용. 정적 7섹션 안에 모델별 변형 블록 박아도 `get_static_hash` 는 모델별로 정확한 해시 (= 같은 모델 호출 시 캐시 적중 유지)
-- [ ] **`LLMClient` 어댑터에서 ctx.model 주입** — `GeminiClient.generate` / `AnthropicClient.generate` 시작 시 `ctx.model` 가 None 이면 자기 model name 으로 자동 채워서 새 ctx 만들고 render. 도메인이 명시적으로 박았으면 그대로 사용
-- [ ] **회귀 invariant**: `RenderContext()` 무인자 호출 가능 (Phase 1~3 backward compat), 모델 마커 없는 섹션 = 모든 모델에서 동일 출력
-- [ ] **단위 테스트**: filter_model_blocks (glob 매칭 / None 케이스 / 중첩 마커 거부), render(ctx) 통합 (모델 분기 시 다른 hash, 같은 모델 호출 시 동일 hash), 어댑터 통합 (Gemini / Anthropic 각각 자기 model 자동 주입)
-- [ ] **회귀 테스트**: Phase 1 70 + Phase 2 41 + Phase 3 76 = 187 전부 GREEN (모델 마커 안 박힌 코드 = backward compat)
-- [ ] **NFR-1 도메인 중립성**: 모델 이름 ("claude-*", "gemini-*") 은 베이스에 박지 않음 — 도메인이 register 또는 ctx 에 채움. 단 어댑터별 자동 주입 (GeminiClient 가 자기 model 이름 알고 있음) 은 OK
-- [ ] **공식 인터페이스 가이드** `docs/interfaces/phase-3-5-model-prompts.md` (8섹션)
-- [ ] **데모 노트북** `notebooks/phase-3-5-model-prompts-demo.ipynb` (4부 + 실습 4개)
+- [x] **`RenderContext.model: str | None = None` 슬롯 추가** — 도메인이 명시적으로 모델 이름 채움 (예: `"claude-sonnet-4-5-20250929"`, `"gemini-2.5-flash"`). 디폴트 None = 모델-무관 (Phase 1~3 backward compat)
+- [x] **`@[MODEL: <pattern>] ... @[/MODEL]` 마커 시스템** — PromptSection 의 `render(ctx)` 결과 안에서 `@[MODEL: claude-*]` 블록은 claude 계열 모델일 때만 keep, 아니면 strip. glob 패턴 지원
+- [x] **`prompts/model_filter.py`** (신규) — `filter_model_blocks(text, model: str | None) -> str` 헬퍼. ctx.model None 이면 모든 @[MODEL] 블록 그대로 둠 (또는 모두 strip — 결정 필요)
+- [x] **`render(ctx)` 통합** — _render_static / _render_dynamic 결과에 filter_model_blocks 적용. 정적 7섹션 안에 모델별 변형 블록 박아도 `get_static_hash` 는 모델별로 정확한 해시 (= 같은 모델 호출 시 캐시 적중 유지)
+- [x] **`LLMClient` 어댑터에서 ctx.model 주입** — `GeminiClient.generate` / `AnthropicClient.generate` 시작 시 `ctx.model` 가 None 이면 자기 model name 으로 자동 채워서 새 ctx 만들고 render. 도메인이 명시적으로 박았으면 그대로 사용
+- [x] **회귀 invariant**: `RenderContext()` 무인자 호출 가능 (Phase 1~3 backward compat), 모델 마커 없는 섹션 = 모든 모델에서 동일 출력
+- [x] **단위 테스트**: filter_model_blocks (glob 매칭 / None 케이스 / 중첩 마커 거부), render(ctx) 통합 (모델 분기 시 다른 hash, 같은 모델 호출 시 동일 hash), 어댑터 통합 (Gemini / Anthropic 각각 자기 model 자동 주입)
+- [x] **회귀 테스트**: Phase 1 70 + Phase 2 41 + Phase 3 76 = 187 전부 GREEN (모델 마커 안 박힌 코드 = backward compat)
+- [x] **NFR-1 도메인 중립성**: 모델 이름 ("claude-*", "gemini-*") 은 베이스에 박지 않음 — 도메인이 register 또는 ctx 에 채움. 단 어댑터별 자동 주입 (GeminiClient 가 자기 model 이름 알고 있음) 은 OK
+- [x] **공식 인터페이스 가이드** `docs/interfaces/phase-3-5-model-prompts.md` (8섹션)
+- [x] **데모 노트북** `notebooks/phase-3-5-model-prompts-demo.ipynb` (4부 + 실습 4개)
 
 ---
 
