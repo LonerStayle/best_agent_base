@@ -98,3 +98,43 @@ def test_attachments_dir_exists():
 
 def test_messages_file_exists():
     assert MESSAGES_FILE.is_file()
+
+
+# Phase 3.5 — model_filter.py 도메인 중립성 + prompts/ 모델 이름 grep 확장 (NFR-1)
+MODEL_FILTER_FILE = PROJECT_ROOT / "best_agent_base" / "prompts" / "model_filter.py"
+
+
+@pytest.mark.parametrize("term", FORBIDDEN_TERMS)
+def test_model_filter_file_free_of_domain_vocab(term):
+    """Phase 3.5 — model_filter.py 도메인 중립성 (NFR-1)."""
+    pattern = re.compile(rf"\b{re.escape(term)}\b", re.IGNORECASE)
+    assert not pattern.search(MODEL_FILTER_FILE.read_text(encoding="utf-8")), (
+        f"forbidden domain term {term!r} found in model_filter.py"
+    )
+
+
+def test_model_filter_file_exists():
+    assert MODEL_FILTER_FILE.is_file()
+
+
+DOMAIN_MODEL_PATTERNS = (
+    "claude-",
+    "gemini-",
+)
+
+
+@pytest.mark.parametrize("pattern", DOMAIN_MODEL_PATTERNS)
+def test_prompts_dir_free_of_domain_model_names(pattern):
+    """NFR-1 — 베이스 prompts/ 안에 도메인 모델 이름 박지 않음.
+
+    어댑터 (llm/) 는 자기 model 이름 박혀있어도 OK — 예외 처리.
+    """
+    pat = re.compile(re.escape(pattern), re.IGNORECASE)
+    hits: list[Path] = []
+    for py in PROMPTS_DIR.rglob("*.py"):
+        if pat.search(py.read_text(encoding="utf-8")):
+            hits.append(py)
+    assert not hits, (
+        f"domain model pattern {pattern!r} found in base prompts dir: "
+        f"{[str(h.relative_to(PROJECT_ROOT)) for h in hits]}"
+    )

@@ -8,7 +8,9 @@ from best_agent_base.prompts.model_filter import filter_model_blocks
 
 
 def test_match_keeps_inner_content():
-    out = filter_model_blocks("text @[MODEL: claude-*]ABC@[/MODEL] tail", "claude-sonnet-4-5-20250929")
+    out = filter_model_blocks(
+        "text @[MODEL: claude-*]ABC@[/MODEL] tail", "claude-sonnet-4-5-20250929"
+    )
     assert out == "text ABC tail"
 
 

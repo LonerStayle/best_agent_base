@@ -17,7 +17,7 @@ _OPEN_RE = re.compile(r"@\[MODEL:\s*([^\]]+?)\s*\]")
 
 
 def filter_model_blocks(text: str, model: str | None) -> str:
-    """@[MODEL: pattern] ... @[/MODEL] 블록 fnmatch 매칭 시 inner content keep, 미매칭 시 전체 strip.
+    """@[MODEL: pattern] ... @[/MODEL] 블록 — 매칭 시 inner keep, 미매칭 시 strip.
 
     model=None 시 모든 마커 블록 strip (조용한 정규화 — Phase 1~3 backward compat).
     중첩 마커 (오프닝 안 또 오프닝) 는 ValueError raise.
